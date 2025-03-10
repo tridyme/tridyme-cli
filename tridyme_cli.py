@@ -325,11 +325,164 @@ def build_project(args):
     print(f"{Colors.GREEN}Construction terminée avec succès!{Colors.ENDC}")
 
 def deploy_project(args):
-    """Déploie le projet sur Google Cloud GKE"""
+    """Déploie le projet sur GKE ou Render"""
     print_header()
-    print(f"{Colors.GREEN}Déploiement du projet sur Google Cloud GKE...{Colors.ENDC}")
     
     config = load_config()
+    
+    # Déterminer la plateforme de déploiement
+    if args.platform == "render":
+        deploy_to_render(args, config)
+    else:  # Par défaut, GKE
+        deploy_to_gke(args, config)
+
+def deploy_to_render(args, config):
+    """Déploie l'application sur Render"""
+    print(f"{Colors.GREEN}Déploiement du projet sur Render...{Colors.ENDC}")
+    
+    # Vérifier si le token Render est configuré
+    render_token = os.environ.get("RENDER_TOKEN") or config.get("render_token")
+    if not render_token:
+        render_token = getpass.getpass("Token API Render (ne sera pas affiché): ")
+        config["render_token"] = render_token
+        save_config(config)
+    
+    # Vous pouvez également demander ou stocker l'ID de l'organisation Render
+    render_org_id = os.environ.get("RENDER_ORG_ID") or config.get("render_org_id")
+    if not render_org_id:
+        render_org_id = input("ID de l'organisation Render: ")
+        config["render_org_id"] = render_org_id
+        save_config(config)
+    
+    # Construire le frontend
+    print(f"{Colors.BLUE}Construction du frontend...{Colors.ENDC}")
+    frontend_dir = os.path.join(os.getcwd(), "frontend")
+    success = run_command(["npm", "run", "build"], cwd=frontend_dir)
+    
+    if not success:
+        print(f"{Colors.RED}Échec de la construction du frontend.{Colors.ENDC}")
+        return
+    
+    # Créer un fichier render.yaml pour le service
+    render_yaml = {
+        "services": [
+            {
+                "type": "web",
+                "name": config['project_name'],
+                "env": "python",
+                "plan": "starter",  # ou "free" pour le plan gratuit
+                "buildCommand": "pip install -r backend/requirements.txt",
+                "startCommand": "cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT",
+                "envVars": [
+                    {
+                        "key": "ENVIRONMENT",
+                        "value": "production"
+                    }
+                ],
+                "staticPublishPath": "./frontend/build"
+            }
+        ]
+    }
+    
+    # Ajouter un domaine personnalisé si spécifié
+    if args.domain:
+        render_yaml["services"][0]["domains"] = [args.domain]
+        config["render_domain"] = args.domain
+        save_config(config)
+    
+    # Sauvegarder le fichier render.yaml
+    with open("render.yaml", "w") as f:
+        json.dump(render_yaml, f, indent=2)
+    
+    # Créer une archive du projet
+    print(f"{Colors.BLUE}Préparation de l'archive du projet...{Colors.ENDC}")
+    
+    # Créer un répertoire temporaire pour l'archive
+    temp_dir = os.path.join(os.getcwd(), "temp_deploy")
+    os.makedirs(temp_dir, exist_ok=True)
+    
+    # Copier les fichiers nécessaires (en excluant node_modules, env, etc.)
+    ignore_patterns = [
+        "**/node_modules/**",
+        "**/env/**",
+        "**/__pycache__/**",
+        "**/.git/**",
+        "**/temp_deploy/**"
+    ]
+    
+    for root, dirs, files in os.walk("."):
+        # Filtrer les répertoires à ignorer
+        dirs[:] = [d for d in dirs if not any(fnmatch.fnmatch(os.path.join(root, d), pattern) for pattern in ignore_patterns)]
+        
+        # Créer la structure de répertoires dans le dossier temporaire
+        rel_path = os.path.relpath(root, ".")
+        temp_root = os.path.join(temp_dir, rel_path)
+        os.makedirs(temp_root, exist_ok=True)
+        
+        # Copier les fichiers
+        for file in files:
+            file_path = os.path.join(root, file)
+            if not any(fnmatch.fnmatch(file_path, pattern) for pattern in ignore_patterns):
+                shutil.copy2(file_path, os.path.join(temp_root, file))
+    
+    # Créer une archive ZIP
+    archive_path = os.path.join(os.getcwd(), f"{config['project_name']}.zip")
+    shutil.make_archive(os.path.splitext(archive_path)[0], 'zip', temp_dir)
+    
+    # Nettoyer le répertoire temporaire
+    shutil.rmtree(temp_dir)
+    
+    # Utiliser l'API Render pour déployer
+    print(f"{Colors.BLUE}Déploiement sur Render...{Colors.ENDC}")
+    
+    import requests
+    
+    headers = {
+        "Authorization": f"Bearer {render_token}",
+        "Content-Type": "application/json"
+    }
+    
+    try:
+        # Créer un nouveau service via l'API
+        with open(archive_path, 'rb') as f:
+            files = {'file': f}
+            
+            # Utiliser l'API Render pour créer un service
+            response = requests.post(
+                f"https://api.render.com/v1/services",
+                headers=headers,
+                files=files,
+                data={
+                    "ownerId": render_org_id,
+                    "yaml": json.dumps(render_yaml)
+                }
+            )
+        
+        if response.status_code in (200, 201):
+            service_info = response.json()
+            service_id = service_info.get("id")
+            service_url = service_info.get("service_url") or f"https://dashboard.render.com/web/{service_id}"
+            
+            print(f"{Colors.GREEN}Déploiement réussi!{Colors.ENDC}")
+            print(f"URL du service: {service_url}")
+            
+            # Stocker les informations du service
+            config["render_service_id"] = service_id
+            config["render_service_url"] = service_url
+            save_config(config)
+        else:
+            print(f"{Colors.RED}Échec du déploiement: {response.status_code}{Colors.ENDC}")
+            print(response.text)
+    except Exception as e:
+        print(f"{Colors.RED}Erreur lors du déploiement: {e}{Colors.ENDC}")
+    finally:
+        # Nettoyer les fichiers temporaires
+        os.remove(archive_path)
+        os.remove("render.yaml")
+        
+def deploy_to_gke(args, config):
+    """Déploie le projet sur Google Cloud GKE"""
+    print(f"{Colors.GREEN}Déploiement du projet sur Google Cloud GKE...{Colors.ENDC}")
     
     # Vérifier si gcloud est installé
     try:
@@ -464,7 +617,7 @@ spec:
         print(f"L'application sera accessible à l'adresse: https://votre-domaine.com/{config['project_name']}/")
     else:
         print(f"{Colors.RED}Échec du déploiement.{Colors.ENDC}")
-
+        
 def configure(args):
     """Configure les paramètres du projet"""
     print_header()
