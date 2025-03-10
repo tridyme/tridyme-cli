@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Script d'installation de TridymeSDK CLI
+# Script d'installation de Tridyme CLI
 # Ce script télécharge et installe l'outil CLI pour TridymeSDK
 
 # Couleurs pour les messages
