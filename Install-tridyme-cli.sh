@@ -42,7 +42,7 @@ cd $TEMP_DIR
 echo -e "${BLUE}Téléchargement des fichiers nécessaires...${NC}"
 
 # Télécharger les fichiers
-curl -s -o tridyme-cli.py https://raw.githubusercontent.com/tridyme/tridyme-cli/main/tridyme-cli.py
+curl -s -o tridyme_cli.py https://raw.githubusercontent.com/tridyme/tridyme-cli/main/tridyme_cli.py
 curl -s -o setup.py https://raw.githubusercontent.com/tridyme/tridyme-cli/main/setup.py
 
 if [ $? -ne 0 ]; then

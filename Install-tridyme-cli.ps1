@@ -35,7 +35,7 @@ Write-Host "Téléchargement des fichiers nécessaires..." -ForegroundColor Blue
 
 # Télécharger les fichiers
 try {
-    Invoke-WebRequest -Uri "https://raw.githubusercontent.com/tridyme/tridyme-cli/main/tridyme-cli.py" -OutFile "tridyme-cli.py"
+    Invoke-WebRequest -Uri "https://raw.githubusercontent.com/tridyme/tridyme-cli/main/tridyme_cli.py" -OutFile "tridyme_cli.py"
     Invoke-WebRequest -Uri "https://raw.githubusercontent.com/tridyme/tridyme-cli/main/setup.py" -OutFile "setup.py"
 }
 catch {
