@@ -87,8 +87,12 @@ fi
 cd ..
 rm -rf $TEMP_DIR
 
-# Créer un script wrapper dans /usr/local/bin
-WRAPPER_PATH="/usr/local/bin/tridyme-cli"
+# Créer le dossier bin dans le répertoire utilisateur s'il n'existe pas
+USER_BIN_DIR="$HOME/bin"
+mkdir -p "$USER_BIN_DIR"
+
+# Créer un script wrapper dans le répertoire utilisateur
+WRAPPER_PATH="$USER_BIN_DIR/tridyme-cli"
 echo -e "${BLUE}Création d'un wrapper dans $WRAPPER_PATH...${NC}"
 
 echo '#!/bin/bash
@@ -102,17 +106,43 @@ chmod +x "$WRAPPER_PATH"
 # Vérifier si l'installation a réussi
 if [ -f "$WRAPPER_PATH" ]; then
     echo -e "${GREEN}TridymeSDK CLI a été installé avec succès!${NC}"
-    echo ""
-    echo -e "Vous pouvez maintenant utiliser les commandes suivantes:"
-    echo -e "  ${BLUE}tridyme-cli init <nom-du-projet>${NC} - Créer un nouveau projet"
-    echo -e "  ${BLUE}tridyme-cli dev${NC} - Lancer le projet en mode développement"
-    echo -e "  ${BLUE}tridyme-cli build${NC} - Construire le projet pour la production"
-    echo -e "  ${BLUE}tridyme-cli deploy${NC} - Déployer sur Google Cloud GKE"
-    echo -e "  ${BLUE}tridyme-cli configure${NC} - Configurer les paramètres du projet"
+    
+    # Vérifier si $HOME/bin est dans le PATH
+    if [[ ":$PATH:" != *":$USER_BIN_DIR:"* ]]; then
+        echo -e "${YELLOW}Remarque: $USER_BIN_DIR n'est pas dans votre PATH.${NC}"
+        echo -e "Pour ajouter ce répertoire à votre PATH, exécutez:"
+        
+        # Déterminer le shell utilisé
+        if [ -n "$ZSH_VERSION" ]; then
+            SHELL_CONFIG="$HOME/.zshrc"
+        elif [ -n "$BASH_VERSION" ]; then
+            SHELL_CONFIG="$HOME/.bash_profile"
+            if [ ! -f "$SHELL_CONFIG" ]; then
+                SHELL_CONFIG="$HOME/.bashrc"
+            fi
+        else
+            SHELL_CONFIG="votre fichier de configuration shell"
+        fi
+        
+        echo -e "  ${BLUE}echo 'export PATH=\"$USER_BIN_DIR:\$PATH\"' >> $SHELL_CONFIG${NC}"
+        echo -e "  ${BLUE}source $SHELL_CONFIG${NC}"
+        echo ""
+        echo -e "Ou vous pouvez exécuter tridyme-cli avec le chemin complet:"
+        echo -e "  ${BLUE}$WRAPPER_PATH --help${NC}"
+    else
+        echo ""
+        echo -e "Vous pouvez maintenant utiliser les commandes suivantes:"
+        echo -e "  ${BLUE}tridyme-cli init <nom-du-projet>${NC} - Créer un nouveau projet"
+        echo -e "  ${BLUE}tridyme-cli dev${NC} - Lancer le projet en mode développement"
+        echo -e "  ${BLUE}tridyme-cli build${NC} - Construire le projet pour la production"
+        echo -e "  ${BLUE}tridyme-cli deploy${NC} - Déployer sur Google Cloud GKE"
+        echo -e "  ${BLUE}tridyme-cli configure${NC} - Configurer les paramètres du projet"
+    fi
+    
     echo ""
     echo -e "Pour plus d'informations, exécutez: ${BLUE}tridyme-cli --help${NC}"
 else
-    echo -e "${YELLOW}L'installation semble avoir réussi dans l'environnement virtuel, mais le wrapper n'a pas pu être créé.${NC}"
+    echo -e "${RED}Échec de la création du wrapper.${NC}"
     echo -e "Vous pouvez toujours exécuter tridyme-cli en activant l'environnement virtuel:"
     echo -e "  ${BLUE}source $VENV_PATH/bin/activate${NC}"
     echo -e "  ${BLUE}tridyme-cli --help${NC}"
