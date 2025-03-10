@@ -3,13 +3,13 @@ from setuptools import setup
 setup(
     name="tridyme-cli",
     version="0.1.0",
-    py_modules=["tridyme_cli"],
+    py_modules=["tridyme-cli"],
     install_requires=[
         "requests>=2.25.0",
     ],
     entry_points={
         "console_scripts": [
-            "tridyme-cli=tridyme_cli:main",
+            "tridyme-cli=tridyme-cli:main",
         ],
     },
     author="TridymeSDK",
