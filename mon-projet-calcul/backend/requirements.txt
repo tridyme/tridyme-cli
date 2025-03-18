@@ -1,7 +1,0 @@
-fastapi
-uvicorn
-python-dotenv==1.0.0
-requests
-fastapi-cors
-pymongo
-httpx
