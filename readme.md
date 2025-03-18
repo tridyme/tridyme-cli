@@ -1,106 +1,122 @@
-# TridymeSDK CLI
+# TriDyme CLI
 
-Un outil en ligne de commande simplifié pour faciliter le développement et le déploiement d'applications basées sur TridymeSDK.
+Un outil en ligne de commande pour simplifier le développement et le déploiement d'applications TriDyme pour les ingénieurs en structure.
 
-## Présentation
-
-TridymeSDK CLI est conçu pour les ingénieurs en calcul de structure qui souhaitent créer leurs propres applications de simulation sans avoir à maîtriser les complexités des outils de développement modernes. Il simplifie les étapes clés du cycle de vie d'une application :
-
-- **Initialisation** : Création rapide d'un nouveau projet à partir du SDK
-- **Développement** : Lancement de l'environnement de développement en quelques commandes
-- **Construction** : Préparation de l'application pour le déploiement
-- **Déploiement** : Publication de l'application sur Google Cloud GKE
-
-## Installation
-
-### Linux/macOS
+## 🚀 Installation
 
 ```bash
-curl -s https://raw.githubusercontent.com/tridyme/tridyme-cli/main/install-tridyme-cli.sh | bash
+# Installation globale
+npm install -g tridyme-cli
+
+# Vérifier l'installation
+tridyme --version
 ```
 
-### Windows (PowerShell)
+## 📋 Commandes
 
-```powershell
-iwr -useb https://raw.githubusercontent.com/tridyme/tridyme-cli/main/install-tridyme-cli.ps1 | iex
-```
-
-## Utilisation
-
-### Initialiser un nouveau projet
+### Créer un nouveau projet
 
 ```bash
-tridyme-cli init mon-application
+# Crée un nouveau projet interactivement
+tridyme create
+
+# Crée un nouveau projet avec un nom spécifique
+tridyme create mon-projet-calcul
 ```
 
-Options :
-- `--method [git|zip]` : Méthode de téléchargement (git par défaut)
-- `--customize` : Personnaliser automatiquement le projet
+La commande interactive vous demandera :
 
-### Lancer le mode développement
+- Le nom de votre entreprise
+- L'URL de la plateforme
+- Le type de template à utiliser
+
+### Démarrer le mode développement
 
 ```bash
-cd mon-application
-tridyme-cli dev
+# Dans le dossier de votre projet
+tridyme dev
 ```
+
+Cette commande lance :
+
+1. Le serveur backend Python avec FastAPI
+2. L'application frontend React
 
 ### Construire pour la production
 
 ```bash
-tridyme-cli build
+# Dans le dossier de votre projet
+tridyme build
 ```
 
-Options :
-- `--docker` : Construire aussi l'image Docker
-- `--tag NOM:VERSION` : Tag pour l'image Docker
-
-### Déployer sur Google Cloud GKE
+### Déployer sur Render
 
 ```bash
-tridyme-cli deploy
+# Dans le dossier de votre projet - déploiement via Git (méthode standard)
+tridyme deploy
+
+# Déploiement direct sans Git (nécessite une clé API Render)
+tridyme deploy --direct
+
+# Déploiement direct avec clé API fournie en argument
+tridyme deploy --direct --api-key=votre_cle_api
 ```
 
-### Configurer les paramètres
+Cette commande offre deux méthodes de déploiement :
+
+1. **Via Git** : La méthode standard qui vous guide à travers le processus de déploiement en utilisant un dépôt Git.
+2. **Déploiement direct** : Permet de déployer directement sur Render sans passer par Git (nécessite une clé API Render).
+
+### Mettre à jour le SDK
 
 ```bash
-tridyme-cli configure
+# Dans le dossier de votre projet
+tridyme update
 ```
 
-Options :
-- `--project-name NOM` : Nom du projet
-- `--gcp-project ID` : ID du projet GCP
-- `--gcp-region REGION` : Région GCP
-- `--gcp-cluster NOM` : Nom du cluster GKE
-- `--gcp-repository NOM` : Nom du dépôt Artifact Registry
+## 🌐 Structure du projet
 
-## Structure d'un projet TridymeSDK
+Après avoir créé un projet, vous aurez la structure suivante :
 
-Un projet créé avec TridymeSDK CLI contient les répertoires suivants :
+```
+mon-projet-calcul/
+├── .env                 # Variables d'environnement globales
+├── backend/             # Serveur Python FastAPI
+│   ├── main.py          # Point d'entrée du backend
+│   └── requirements.txt # Dépendances Python
+├── frontend/            # Application React
+│   ├── src/             # Code source React
+│   ├── public/          # Fichiers statiques
+│   └── package.json     # Dépendances JavaScript
+├── init.ps1             # Script d'initialisation Windows
+└── init.sh              # Script d'initialisation Linux/MacOS
+```
 
-- `backend/` : Le serveur Python basé sur FastAPI
-- `frontend/` : L'interface utilisateur React
-- `.env` : Les variables d'environnement
-- `Dockerfile` : La configuration pour créer une image Docker
-- `.tridyme-config.json` : Configuration spécifique à votre projet
+## 🔧 Personnalisation
 
-## Prérequis
+Pour personnaliser votre application, vous pouvez modifier les fichiers suivants :
 
-- Python 3.6+
-- Node.js 14+
-- npm 6+
-- Pour le déploiement : Docker, Google Cloud SDK, kubectl
+- `.env` - Variables d'environnement globales
+- `frontend/.env.development` - Variables d'environnement pour le développement
+- `frontend/.env.production` - Variables d'environnement pour la production
+- `frontend/src/Views/` - Composants React pour vos vues
 
-## Utilisation avec Google Cloud
+## 📦 Déploiement
 
-Pour déployer sur Google Cloud GKE, vous devez :
+### Sur Render
 
-1. Avoir un compte Google Cloud avec un projet actif
-2. Avoir créé un cluster GKE
-3. Avoir configuré un dépôt Artifact Registry pour stocker vos images Docker
-4. Avoir installé et configuré `gcloud` et `kubectl`
+1. Créez un dépôt Git et poussez votre code
+2. Créez un compte sur [Render](https://render.com)
+3. Créez un nouveau Web Service et connectez-le à votre dépôt
+4. Configuration :
+   - **Build Command** : `npm run build`
+   - **Start Command** : `uvicorn backend.main:app --host 0.0.0.0 --port $PORT`
+   - **Environment Variables** : Ajoutez les variables d'environnement de votre fichier `.env`
 
-La commande `tridyme-cli deploy` vous guidera à travers le processus et stockera vos préférences.
+## 🤝 Contribution
 
-## Développement personnalisé
+Les contributions sont les bienvenues ! N'hésitez pas à ouvrir une issue ou à soumettre une pull request.
 
-Si vous souhaitez personnaliser davantage votre application, consultez la documentation complète de TridymeSDK sur [tridyme.com](https://www.tridyme.com/).
+## 📄 Licence
+
+Ce projet est sous licence MIT.
