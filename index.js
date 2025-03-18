@@ -439,6 +439,8 @@ program
 
 // Importation du module de déploiement Render
 const renderDeploy = require('./render-deploy');
+// Importation du module de déploiement Docker
+const dockerDeploy = require('./docker-deploy');
 
 // Commande pour déployer sur Render
 program
@@ -449,6 +451,7 @@ program
     'Déployer directement sans utiliser Git (nécessite une clé API Render)',
   )
   .option('--api-key <key>', 'Clé API Render pour le déploiement direct')
+  .option('--docker', 'Déployer via Docker')
   .action(async (options) => {
     console.log(chalk.blue('Préparation du déploiement sur Render...'));
 
@@ -461,7 +464,11 @@ program
     }
 
     // Demander la méthode de déploiement si non spécifiée
-    let deployMethod = options.direct ? 'direct' : null;
+    let deployMethod = options.direct
+      ? 'direct'
+      : options.docker
+      ? 'docker'
+      : null;
 
     if (!deployMethod) {
       const methodChoice = await inquirer.prompt([
@@ -475,6 +482,10 @@ program
               value: 'git',
             },
             {
+              name: 'Via Docker (recommandé pour des déploiements cohérents)',
+              value: 'docker',
+            },
+            {
               name: 'Déploiement direct (nécessite une clé API Render)',
               value: 'direct',
             },
@@ -484,6 +495,64 @@ program
       ]);
 
       deployMethod = methodChoice.method;
+    }
+
+    // Déploiement via Docker
+    if (deployMethod === 'docker') {
+      console.log(
+        chalk.blue("Préparation du déploiement via Docker et l'API Render..."),
+      );
+
+      // Vérifier que Docker est installé
+      if (!dockerDeploy.checkDockerInstalled()) {
+        console.error(
+          chalk.red("Docker n'est pas installé ou n'est pas accessible."),
+        );
+        console.log(
+          chalk.yellow(
+            'Veuillez installer Docker: https://docs.docker.com/get-docker/',
+          ),
+        );
+
+        const { tryGit } = await inquirer.prompt([
+          {
+            type: 'confirm',
+            name: 'tryGit',
+            message: 'Voulez-vous essayer le déploiement via Git à la place?',
+            default: true,
+          },
+        ]);
+
+        if (tryGit) {
+          deployMethod = 'git';
+        } else {
+          return;
+        }
+      } else {
+        // Demander la clé API si elle n'a pas été fournie en option
+        let apiKey = options.apiKey;
+
+        if (!apiKey) {
+          const apiKeyPrompt = await inquirer.prompt([
+            {
+              type: 'input',
+              name: 'apiKey',
+              message: 'Entrez votre clé API Render:',
+              validate: (input) =>
+                input.trim() !== '' ? true : 'La clé API est requise',
+            },
+          ]);
+
+          apiKey = apiKeyPrompt.apiKey;
+        }
+
+        // Procéder au déploiement Docker via l'API Render
+        await dockerDeploy.deployWithDocker({
+          projectPath: process.cwd(),
+          apiKey,
+        });
+        return;
+      }
     }
 
     // Déploiement direct via l'API Render
@@ -538,9 +607,48 @@ program
             { padding: 1, borderColor: 'green', margin: 1 },
           ),
         );
+      } else if (deployResult.error && deployResult.error.includes('520')) {
+        console.log(
+          chalk.red(
+            "Erreur 520 détectée: Problème de connexion avec l'API Render.",
+          ),
+        );
+        console.log(
+          chalk.yellow(
+            'Cette erreur est généralement temporaire et liée à Cloudflare.',
+          ),
+        );
+
+        const { tryAlternative } = await inquirer.prompt([
+          {
+            type: 'list',
+            name: 'tryAlternative',
+            message: 'Que souhaitez-vous faire?',
+            choices: [
+              { name: 'Essayer le déploiement via Git', value: 'git' },
+              { name: 'Essayer le déploiement via Docker', value: 'docker' },
+              { name: 'Annuler le déploiement', value: 'cancel' },
+            ],
+            default: 'git',
+          },
+        ]);
+
+        if (tryAlternative === 'git') {
+          deployMethod = 'git';
+        } else if (tryAlternative === 'docker') {
+          // Redémarrer le processus avec Docker
+          await dockerDeploy.deployWithDocker({
+            projectPath: process.cwd(),
+          });
+          return;
+        } else {
+          return;
+        }
       }
 
-      return;
+      if (deployMethod !== 'git') {
+        return;
+      }
     }
 
     // Méthode de déploiement via Git
@@ -550,7 +658,7 @@ program
     } catch (error) {
       console.error(
         chalk.red(
-          "Git n'est pas installé. Veuillez l'installer pour continuer ou utiliser l'option de déploiement direct.",
+          "Git n'est pas installé. Veuillez l'installer pour continuer ou utiliser l'option de déploiement direct ou Docker.",
         ),
       );
       return;
