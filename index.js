@@ -14,6 +14,66 @@ const os = require('os');
 // Version depuis package.json
 const packageJson = require('./package.json');
 
+// Fonction pour vérifier la politique d'exécution PowerShell
+async function checkPowerShellExecutionPolicy() {
+  if (os.platform() !== 'win32') return true;
+
+  try {
+    // Vérifier la politique d'exécution actuelle
+    const policyOutput = execSync('powershell -Command "Get-ExecutionPolicy"', {
+      stdio: 'pipe',
+      encoding: 'utf8',
+    }).trim();
+
+    if (policyOutput === 'Restricted') {
+      console.log(
+        chalk.yellow(
+          'La politique d\'exécution PowerShell est actuellement "Restricted".',
+        ),
+      );
+      console.log(
+        chalk.yellow("Cela peut empêcher l'exécution correcte des scripts."),
+      );
+
+      const { modifyPolicy } = await inquirer.prompt([
+        {
+          type: 'confirm',
+          name: 'modifyPolicy',
+          message:
+            'Voulez-vous temporairement définir la politique sur "RemoteSigned" pour cette session?',
+          default: true,
+        },
+      ]);
+
+      if (modifyPolicy) {
+        execSync(
+          'powershell -Command "Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process"',
+          {
+            stdio: 'inherit',
+          },
+        );
+        console.log(
+          chalk.green("Politique d'exécution modifiée pour cette session."),
+        );
+      } else {
+        console.log(
+          chalk.yellow(
+            "Vous pourriez rencontrer des problèmes avec l'activation des environnements virtuels.",
+          ),
+        );
+      }
+    }
+    return true;
+  } catch (error) {
+    console.log(
+      chalk.yellow(
+        "Impossible de vérifier la politique d'exécution PowerShell.",
+      ),
+    );
+    return false;
+  }
+}
+
 program
   .version(packageJson.version)
   .description('CLI pour créer et gérer des applications TriDyme');
@@ -24,6 +84,11 @@ program
   .description("Créer un nouveau projet d'application TriDyme")
   .action(async (nomProjet) => {
     try {
+      // Vérifier la politique d'exécution PowerShell sur Windows
+      if (os.platform() === 'win32') {
+        await checkPowerShellExecutionPolicy();
+      }
+
       // Si nom du projet n'est pas fourni, demander à l'utilisateur
       if (!nomProjet) {
         const response = await inquirer.prompt([
@@ -208,20 +273,39 @@ program
         spinner.text = 'Installation des dépendances Python...';
         spinner.start();
 
-        let activateCmd, pipInstallCmd;
         if (os.platform() === 'win32') {
-          activateCmd = '.\\env\\Scripts\\activate';
-          pipInstallCmd = `cd backend && ${activateCmd} && pip install --upgrade pip && pip install -r requirements.txt`;
+          // Approche spécifique à Windows
+          // Mise à jour de pip sans utiliser activate
+          execSync(
+            `cd backend && .\\env\\Scripts\\python.exe -m pip install --upgrade pip`,
+            {
+              cwd: projectPath,
+              stdio: 'pipe',
+              shell: true,
+            },
+          );
+
+          // Installation des dépendances sans utiliser activate
+          execSync(
+            `cd backend && .\\env\\Scripts\\pip.exe install -r requirements.txt`,
+            {
+              cwd: projectPath,
+              stdio: 'pipe',
+              shell: true,
+            },
+          );
         } else {
-          activateCmd = 'source env/bin/activate';
-          pipInstallCmd = `cd backend && ${activateCmd} && pip install --upgrade pip && pip install -r requirements.txt`;
+          // Approche Unix/macOS
+          const activateCmd = 'source env/bin/activate';
+          const pipInstallCmd = `cd backend && ${activateCmd} && pip install --upgrade pip && pip install -r requirements.txt`;
+
+          execSync(pipInstallCmd, {
+            cwd: projectPath,
+            stdio: 'pipe',
+            shell: true,
+          });
         }
 
-        execSync(pipInstallCmd, {
-          cwd: projectPath,
-          stdio: 'pipe',
-          shell: true,
-        });
         spinner.succeed('Dépendances Python installées');
 
         // Installer les dépendances frontend
@@ -249,7 +333,34 @@ program
         console.error(
           chalk.red(`Erreur lors de l'initialisation: ${error.message}`),
         );
-        console.log(chalk.yellow('\nConseil de dépannage:'));
+
+        if (os.platform() === 'win32') {
+          console.log(
+            chalk.yellow('\nConseils de dépannage spécifiques à Windows:'),
+          );
+          console.log(
+            chalk.yellow(
+              "- Vérifiez que vous exécutez le terminal en tant qu'administrateur",
+            ),
+          );
+          console.log(
+            chalk.yellow(
+              '- Exécutez la commande: Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process',
+            ),
+          );
+          console.log(
+            chalk.yellow(
+              '- Assurez-vous que Python est accessible avec la commande "python" (et non python3)',
+            ),
+          );
+          console.log(
+            chalk.yellow(
+              '- Vérifiez votre PATH Windows pour vous assurer que Python y figure',
+            ),
+          );
+        }
+
+        console.log(chalk.yellow('\nConseils généraux:'));
         console.log(
           chalk.yellow(
             '- Assurez-vous que Python est correctement installé et accessible dans le PATH',
@@ -290,6 +401,11 @@ program
   .command('dev')
   .description('Lancer le projet en mode développement')
   .action(async () => {
+    // Vérifier la politique d'exécution PowerShell sur Windows
+    if (os.platform() === 'win32') {
+      await checkPowerShellExecutionPolicy();
+    }
+
     console.log(chalk.blue('Démarrage du projet en mode développement...'));
 
     // Vérifier si l'environnement virtuel Python est activé et les dépendances sont installées
@@ -333,22 +449,34 @@ program
       spinner.text = 'Installation des dépendances Python...';
       spinner.start();
 
-      const activateEnvCmd =
-        os.platform() === 'win32'
-          ? '.\\env\\Scripts\\activate'
-          : 'source env/bin/activate';
-
-      const pipInstallCmd =
-        os.platform() === 'win32'
-          ? `${activateEnvCmd} && pip install -r requirements.txt`
-          : `${activateEnvCmd} && pip install -r requirements.txt`;
-
       try {
-        execSync(pipInstallCmd, {
-          cwd: path.join(process.cwd(), 'backend'),
-          stdio: 'pipe',
-          shell: true,
-        });
+        if (os.platform() === 'win32') {
+          // Approche spécifique à Windows
+          // Mise à jour de pip sans utiliser activate
+          execSync(`.\\env\\Scripts\\python.exe -m pip install --upgrade pip`, {
+            cwd: path.join(process.cwd(), 'backend'),
+            stdio: 'pipe',
+            shell: true,
+          });
+
+          // Installation des dépendances sans utiliser activate
+          execSync(`.\\env\\Scripts\\pip.exe install -r requirements.txt`, {
+            cwd: path.join(process.cwd(), 'backend'),
+            stdio: 'pipe',
+            shell: true,
+          });
+        } else {
+          // Approche Unix/macOS
+          const activateCmd = 'source env/bin/activate';
+          const pipInstallCmd = `${activateCmd} && pip install -r requirements.txt`;
+
+          execSync(pipInstallCmd, {
+            cwd: path.join(process.cwd(), 'backend'),
+            stdio: 'pipe',
+            shell: true,
+          });
+        }
+
         spinner.succeed('Dépendances Python installées');
       } catch (error) {
         spinner.fail("Échec de l'installation des dépendances Python");
@@ -364,18 +492,23 @@ program
     }
 
     // Lancer le backend avec l'environnement virtuel
-    let backendCmd;
+    let backendProcess;
     if (os.platform() === 'win32') {
-      backendCmd = 'env\\Scripts\\python main.py';
+      // Approche spécifique à Windows
+      backendProcess = spawn('env\\Scripts\\python.exe main.py', {
+        cwd: path.join(process.cwd(), 'backend'),
+        stdio: 'inherit',
+        shell: true,
+      });
     } else {
-      backendCmd = 'source env/bin/activate && python main.py';
+      // Approche Unix/macOS
+      const backendCmd = 'source env/bin/activate && python main.py';
+      backendProcess = spawn(backendCmd, {
+        cwd: path.join(process.cwd(), 'backend'),
+        stdio: 'inherit',
+        shell: true,
+      });
     }
-
-    const backendProcess = spawn(backendCmd, {
-      cwd: path.join(process.cwd(), 'backend'),
-      stdio: 'inherit',
-      shell: true,
-    });
 
     // Attendre un peu que le backend démarre
     setTimeout(() => {
@@ -747,6 +880,11 @@ program
   .command('update')
   .description('Mettre à jour le SDK TriDyme')
   .action(async () => {
+    // Vérifier la politique d'exécution PowerShell sur Windows
+    if (os.platform() === 'win32') {
+      await checkPowerShellExecutionPolicy();
+    }
+
     console.log(chalk.blue('Vérification des mises à jour du SDK...'));
 
     // Vérifier si nous sommes dans un projet TriDyme
