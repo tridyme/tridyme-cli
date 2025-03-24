@@ -115,20 +115,30 @@ program
         return;
       }
 
+      // Générer un ID MongoDB-like
+      const generateMongoObjectId = () => {
+        const timestamp = ((new Date().getTime() / 1000) | 0).toString(16);
+        return (
+          timestamp +
+          'xxxxxxxxxxxxxxxx'
+            .replace(/[x]/g, () => {
+              return ((Math.random() * 16) | 0).toString(16);
+            })
+            .toLowerCase()
+        );
+      };
+
       // Demander des informations supplémentaires
       const answers = await inquirer.prompt([
         {
-          type: 'list',
-          name: 'template',
-          message: 'Choisissez un modèle de projet:',
-          choices: [
-            {
-              name: 'Application standard (Python + React)',
-              value: 'standard',
-            },
-            { name: 'Application simple (Python uniquement)', value: 'simple' },
-          ],
-          default: 'standard',
+          type: 'input',
+          name: 'applicationName',
+          message: "Nom de l'application:",
+          default: nomProjet,
+          validate: (input) =>
+            input.trim() !== ''
+              ? true
+              : "Le nom de l'application ne peut pas être vide",
         },
         {
           type: 'input',
@@ -138,11 +148,18 @@ program
         },
         {
           type: 'input',
-          name: 'platformUrl',
-          message: 'URL de la plateforme:',
-          default: 'https://tridyme.com',
+          name: 'platformApiUrl',
+          message: 'URL de la plateforme API:',
+          default: 'https://platform.tridyme.com/api',
         },
       ]);
+
+      // Préparer les variables pour les fichiers de configuration
+      const applicationId = generateMongoObjectId();
+      const applicationSlug = slugify(answers.applicationName, { lower: true });
+      const renderUrl = `https://${applicationSlug}.onrender.com`;
+      const platformApiToken =
+        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImFkbWluQHRyaWR5bWUuY29tIiwiX2lkIjoiNTg5OWUwYWNhNjAwNzQxNzU1NDMzOTAyIiwiaWF0IjoxNjg4NDY3NzA2fQ.FGDbvEVZnDIVNjsi0izrt-63lVndg7EnNpDK9BO1LiE';
 
       // Afficher un résumé
       console.log(
@@ -150,13 +167,15 @@ program
           chalk.bold('Résumé du projet à créer:') +
             '\n\n' +
             `${chalk.cyan('Nom du projet:')} ${nomProjet}\n` +
-            `${chalk.cyan('Template:')} ${
-              answers.template === 'standard'
-                ? 'Application standard (Python + React)'
-                : 'Application simple (Python uniquement)'
+            `${chalk.cyan("Nom de l'application:")} ${
+              answers.applicationName
             }\n` +
             `${chalk.cyan('Entreprise:')} ${answers.companyName}\n` +
-            `${chalk.cyan('URL Plateforme:')} ${answers.platformUrl}`,
+            `${chalk.cyan("URL de l'application:")} ${renderUrl}\n` +
+            `${chalk.cyan('URL de la plateforme API:')} ${
+              answers.platformApiUrl
+            }\n` +
+            `${chalk.cyan("ID de l'application:")} ${applicationId}`,
           { padding: 1, borderColor: 'green', margin: 1 },
         ),
       );
@@ -207,40 +226,54 @@ program
         );
       }
 
-      // Modifier les fichiers de configuration selon les réponses
       const envFilePath = path.join(projectPath, '.env');
       const envDevPath = path.join(projectPath, 'frontend', '.env.development');
       const envProdPath = path.join(projectPath, 'frontend', '.env.production');
 
-      // Mettre à jour .env
-      if (fs.existsSync(envFilePath)) {
-        let envContent = fs.readFileSync(envFilePath, 'utf8');
-        envContent = envContent.replace(
-          /REACT_APP_COMPANY=".*"/,
-          `REACT_APP_COMPANY="${answers.companyName}"`,
-        );
-        envContent = envContent.replace(
-          /REACT_APP_PLATFORM_URL=".*"/,
-          `REACT_APP_PLATFORM_URL="${answers.platformUrl}"`,
-        );
-        fs.writeFileSync(envFilePath, envContent);
+      // Créer le contenu des fichiers .env
+      const envDevContent = `ENVIRONMENT="development"
+REACT_APP_LOGO="./EC2-Ferraillage.svg"
+REACT_APP_COMPANY="${answers.companyName}"
+REACT_APP_APPLICATION_NAME="${answers.applicationName}"
+REACT_APP_APPLICATION_API_URL="http://localhost:8000"
+REACT_APP_PLATFORM_API_URL="${answers.platformApiUrl}"
+REACT_APP_PLATFORM_API_TOKEN="${platformApiToken}"
+REACT_APP_APPLICATION_ID="${applicationId}"
+NODE_PATH=./..
+CI=false`;
+
+      const envProdContent = `ENVIRONMENT="production"
+REACT_APP_LOGO="./EC2-Ferraillage.svg"
+REACT_APP_COMPANY="${answers.companyName}"
+REACT_APP_APPLICATION_NAME="${answers.applicationName}"
+REACT_APP_APPLICATION_API_URL="${renderUrl}"
+REACT_APP_PLATFORM_API_URL="${answers.platformApiUrl}"
+REACT_APP_PLATFORM_API_TOKEN="${platformApiToken}"
+REACT_APP_APPLICATION_ID="${applicationId}"
+NODE_PATH=./..
+CI=false`;
+
+      const envContent = `ENVIRONMENT="development"
+REACT_APP_LOGO="./EC2-Ferraillage.svg"
+REACT_APP_COMPANY="${answers.companyName}"
+REACT_APP_APPLICATION_NAME="${answers.applicationName}"
+REACT_APP_APPLICATION_API_URL="${renderUrl}"
+REACT_APP_PLATFORM_API_URL="${answers.platformApiUrl}"
+REACT_APP_PLATFORM_API_TOKEN="${platformApiToken}"
+REACT_APP_APPLICATION_ID="${applicationId}"
+NODE_PATH=./..
+CI=false`;
+
+      // Créer les répertoires si nécessaire
+      const frontendDir = path.join(projectPath, 'frontend');
+      if (!fs.existsSync(frontendDir)) {
+        fs.mkdirSync(frontendDir, { recursive: true });
       }
 
-      // Mettre à jour .env.development et .env.production
-      [envDevPath, envProdPath].forEach((filePath) => {
-        if (fs.existsSync(filePath)) {
-          let envContent = fs.readFileSync(filePath, 'utf8');
-          envContent = envContent.replace(
-            /REACT_APP_COMPANY=".*"/,
-            `REACT_APP_COMPANY="${answers.companyName}"`,
-          );
-          envContent = envContent.replace(
-            /REACT_APP_APPLICATION_NAME=".*"/,
-            `REACT_APP_APPLICATION_NAME="${nomProjet}"`,
-          );
-          fs.writeFileSync(filePath, envContent);
-        }
-      });
+      // Écrire les fichiers .env
+      fs.writeFileSync(envDevPath, envDevContent);
+      fs.writeFileSync(envProdPath, envProdContent);
+      fs.writeFileSync(envFilePath, envContent);
 
       // Mettre à jour package.json
       const packageJsonPath = path.join(
