@@ -232,7 +232,7 @@ program
 
       // Créer le contenu des fichiers .env
       const envDevContent = `ENVIRONMENT="development"
-REACT_APP_LOGO="./EC2-Ferraillage.svg"
+REACT_APP_LOGO="./logo.svg"
 REACT_APP_COMPANY="${answers.companyName}"
 REACT_APP_APPLICATION_NAME="${answers.applicationName}"
 REACT_APP_APPLICATION_API_URL="http://localhost:8000"
@@ -243,7 +243,7 @@ NODE_PATH=./..
 CI=false`;
 
       const envProdContent = `ENVIRONMENT="production"
-REACT_APP_LOGO="./EC2-Ferraillage.svg"
+REACT_APP_LOGO="./logo.svg"
 REACT_APP_COMPANY="${answers.companyName}"
 REACT_APP_APPLICATION_NAME="${answers.applicationName}"
 REACT_APP_APPLICATION_API_URL="${renderUrl}"
@@ -254,7 +254,7 @@ NODE_PATH=./..
 CI=false`;
 
       const envContent = `ENVIRONMENT="development"
-REACT_APP_LOGO="./EC2-Ferraillage.svg"
+REACT_APP_LOGO="./logo.svg"
 REACT_APP_COMPANY="${answers.companyName}"
 REACT_APP_APPLICATION_NAME="${answers.applicationName}"
 REACT_APP_APPLICATION_API_URL="${renderUrl}"
