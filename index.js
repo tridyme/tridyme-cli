@@ -14,6 +14,11 @@ const os = require('os');
 // Version depuis package.json
 const packageJson = require('./package.json');
 
+// Import des modules de déploiement
+const renderDeploy = require('./render-deploy');
+const dockerDeploy = require('./docker-deploy');
+const gcpDeploy = require('./gcp-deploy'); // Nouveau module GCP
+
 // Fonction pour vérifier la politique d'exécution PowerShell
 async function checkPowerShellExecutionPolicy() {
   if (os.platform() !== 'win32') return true;
@@ -307,8 +312,6 @@ CI=false`;
         spinner.start();
 
         if (os.platform() === 'win32') {
-          // Approche spécifique à Windows
-          // Mise à jour de pip sans utiliser activate
           execSync(
             `cd backend && .\\env\\Scripts\\python.exe -m pip install --upgrade pip`,
             {
@@ -318,7 +321,6 @@ CI=false`;
             },
           );
 
-          // Installation des dépendances sans utiliser activate
           execSync(
             `cd backend && .\\env\\Scripts\\pip.exe install -r requirements.txt`,
             {
@@ -328,7 +330,6 @@ CI=false`;
             },
           );
         } else {
-          // Approche Unix/macOS
           const activateCmd = 'source env/bin/activate';
           const pipInstallCmd = `cd backend && ${activateCmd} && pip install --upgrade pip && pip install -r requirements.txt`;
 
@@ -603,23 +604,26 @@ program
     }
   });
 
-// Importation du module de déploiement Render
-const renderDeploy = require('./render-deploy');
-// Importation du module de déploiement Docker
-const dockerDeploy = require('./docker-deploy');
-
-// Commande pour déployer sur Render
+// Commande pour déployer sur différentes plateformes
 program
   .command('deploy')
-  .description("Déployer l'application sur Render")
+  .description("Déployer l'application")
   .option(
-    '--direct',
-    'Déployer directement sans utiliser Git (nécessite une clé API Render)',
+    '--platform <platform>',
+    'Plateforme de déploiement (render|docker|gcp)',
+    'render',
   )
-  .option('--api-key <key>', 'Clé API Render pour le déploiement direct')
-  .option('--docker', 'Déployer via Docker')
+  .option(
+    '--env <environment>',
+    'Environnement (development|production)',
+    'development',
+  )
+  .option('--api-key <key>', 'Clé API pour le déploiement')
+  .option('--project <name>', 'Nom du projet')
+  .option('--direct', 'Déploiement direct sans Git (pour Render)')
+  .option('--docker', 'Déployer via Docker (pour Render)')
   .action(async (options) => {
-    console.log(chalk.blue('Préparation du déploiement sur Render...'));
+    console.log(chalk.blue('Préparation du déploiement...'));
 
     // Vérifier si nous sommes dans un projet TriDyme
     if (!fs.existsSync('backend') || !fs.existsSync('frontend')) {
@@ -629,242 +633,186 @@ program
       return;
     }
 
-    // Demander la méthode de déploiement si non spécifiée
-    let deployMethod = options.direct
-      ? 'direct'
-      : options.docker
-      ? 'docker'
-      : null;
+    // Demander la plateforme de déploiement si non spécifiée
+    let platform = options.platform;
 
-    if (!deployMethod) {
-      const methodChoice = await inquirer.prompt([
+    if (!platform || !['render', 'docker', 'gcp'].includes(platform)) {
+      const platformChoice = await inquirer.prompt([
         {
           type: 'list',
-          name: 'method',
-          message: 'Comment souhaitez-vous déployer?',
+          name: 'platform',
+          message: 'Sur quelle plateforme souhaitez-vous déployer?',
           choices: [
             {
-              name: 'Via Git (recommandé pour la plupart des utilisateurs)',
-              value: 'git',
+              name: '🌐 Google Cloud Platform (GKE) - Recommandé pour la production',
+              value: 'gcp',
             },
             {
-              name: 'Via Docker (recommandé pour des déploiements cohérents)',
+              name: '🚀 Render - Simple et rapide',
+              value: 'render',
+            },
+            {
+              name: '🐳 Docker sur Render - Déploiement conteneurisé',
               value: 'docker',
             },
-            {
-              name: 'Déploiement direct (nécessite une clé API Render)',
-              value: 'direct',
-            },
           ],
-          default: 'git',
+          default: 'gcp',
         },
       ]);
-
-      deployMethod = methodChoice.method;
+      platform = platformChoice.platform;
     }
 
-    // Déploiement via Docker
-    if (deployMethod === 'docker') {
-      console.log(
-        chalk.blue("Préparation du déploiement via Docker et l'API Render..."),
-      );
+    // Déploiement selon la plateforme choisie
+    switch (platform) {
+      case 'gcp':
+        console.log(chalk.blue('🌐 Déploiement sur Google Cloud Platform...'));
+        const gcpResult = await gcpDeploy.deployToGCP({
+          projectPath: process.cwd(),
+          projectName: options.project,
+          environment: options.env,
+          apiKey: options.apiKey,
+        });
 
-      // Vérifier que Docker est installé
-      if (!dockerDeploy.checkDockerInstalled()) {
-        console.error(
-          chalk.red("Docker n'est pas installé ou n'est pas accessible."),
-        );
-        console.log(
-          chalk.yellow(
-            'Veuillez installer Docker: https://docs.docker.com/get-docker/',
-          ),
-        );
-
-        const { tryGit } = await inquirer.prompt([
-          {
-            type: 'confirm',
-            name: 'tryGit',
-            message: 'Voulez-vous essayer le déploiement via Git à la place?',
-            default: true,
-          },
-        ]);
-
-        if (tryGit) {
-          deployMethod = 'git';
-        } else {
-          return;
+        if (!gcpResult.success && !gcpResult.cancelled) {
+          console.log(chalk.yellow('\n💡 Vous pouvez aussi essayer:'));
+          console.log(chalk.white('• tridyme deploy --platform render'));
+          console.log(chalk.white('• tridyme deploy --platform docker'));
         }
-      } else {
-        // Demander la clé API si elle n'a pas été fournie en option
-        let apiKey = options.apiKey;
+        break;
 
-        if (!apiKey) {
-          const apiKeyPrompt = await inquirer.prompt([
+      case 'docker':
+        console.log(chalk.blue('🐳 Déploiement Docker sur Render...'));
+
+        // Vérifier que Docker est installé
+        if (!dockerDeploy.checkDockerInstalled()) {
+          console.error(
+            chalk.red("Docker n'est pas installé ou n'est pas accessible."),
+          );
+          console.log(
+            chalk.yellow(
+              'Veuillez installer Docker: https://docs.docker.com/get-docker/',
+            ),
+          );
+
+          const { tryAlternative } = await inquirer.prompt([
             {
-              type: 'input',
-              name: 'apiKey',
-              message: 'Entrez votre clé API Render:',
-              validate: (input) =>
-                input.trim() !== '' ? true : 'La clé API est requise',
+              type: 'list',
+              name: 'tryAlternative',
+              message: 'Que voulez-vous faire?',
+              choices: [
+                { name: 'Essayer le déploiement GCP', value: 'gcp' },
+                {
+                  name: 'Essayer le déploiement Render standard',
+                  value: 'render',
+                },
+                { name: 'Annuler', value: 'cancel' },
+              ],
             },
           ]);
 
-          apiKey = apiKeyPrompt.apiKey;
+          if (tryAlternative === 'gcp') {
+            await gcpDeploy.deployToGCP({
+              projectPath: process.cwd(),
+              environment: options.env,
+            });
+          } else if (tryAlternative === 'render') {
+            // Fallback vers déploiement Render standard
+            await handleRenderDeployment(options);
+          }
+          return;
         }
 
-        // Procéder au déploiement Docker via l'API Render
         await dockerDeploy.deployWithDocker({
           projectPath: process.cwd(),
-          apiKey,
+          apiKey: options.apiKey,
         });
-        return;
-      }
+        break;
+
+      case 'render':
+      default:
+        await handleRenderDeployment(options);
+        break;
     }
+  });
 
-    // Déploiement direct via l'API Render
-    if (deployMethod === 'direct') {
-      console.log(
-        chalk.blue('Préparation du déploiement direct sur Render...'),
-      );
+// Fonction helper pour gérer le déploiement Render
+async function handleRenderDeployment(options) {
+  console.log(chalk.blue('🚀 Déploiement sur Render...'));
 
-      // Demander la clé API si elle n'a pas été fournie en option
-      let apiKey = options.apiKey;
-      let projectName = path.basename(process.cwd());
-      let confirmDeploy = true;
+  // Demander la méthode de déploiement si non spécifiée
+  let deployMethod = options.direct ? 'direct' : null;
 
-      if (!apiKey) {
-        // Utiliser le module de déploiement pour demander les informations
-        const deployInfo = await renderDeploy.promptDeploymentInfo();
-
-        if (!deployInfo.confirmDeploy) {
-          console.log(chalk.yellow('Déploiement annulé.'));
-          return;
-        }
-
-        apiKey = deployInfo.apiKey;
-        projectName = deployInfo.projectName;
-      }
-
-      // Construire le projet pour la production
-      console.log(chalk.blue('Construction du projet pour le déploiement...'));
-
-      try {
-        execSync('cd frontend && npm run build', { stdio: 'inherit' });
-      } catch (error) {
-        console.error(chalk.red('Échec de la construction du projet.'));
-        console.error(chalk.red(`Erreur: ${error.message}`));
-        return;
-      }
-
-      // Déployer l'application
-      const deployResult = await renderDeploy.deployToRender({
-        apiKey,
-        projectName,
-        projectPath: process.cwd(),
-      });
-
-      if (deployResult.success) {
-        console.log(
-          boxen(
-            chalk.green.bold('✨ Déploiement réussi! ✨') +
-              '\n\n' +
-              `Votre application est maintenant disponible à l'adresse:\n` +
-              `${chalk.cyan(deployResult.url)}`,
-            { padding: 1, borderColor: 'green', margin: 1 },
-          ),
-        );
-      } else if (deployResult.error && deployResult.error.includes('520')) {
-        console.log(
-          chalk.red(
-            "Erreur 520 détectée: Problème de connexion avec l'API Render.",
-          ),
-        );
-        console.log(
-          chalk.yellow(
-            'Cette erreur est généralement temporaire et liée à Cloudflare.',
-          ),
-        );
-
-        const { tryAlternative } = await inquirer.prompt([
+  if (!deployMethod) {
+    const methodChoice = await inquirer.prompt([
+      {
+        type: 'list',
+        name: 'method',
+        message: 'Comment souhaitez-vous déployer sur Render?',
+        choices: [
           {
-            type: 'list',
-            name: 'tryAlternative',
-            message: 'Que souhaitez-vous faire?',
-            choices: [
-              { name: 'Essayer le déploiement via Git', value: 'git' },
-              { name: 'Essayer le déploiement via Docker', value: 'docker' },
-              { name: 'Annuler le déploiement', value: 'cancel' },
-            ],
-            default: 'git',
+            name: 'Via Git (recommandé pour la plupart des utilisateurs)',
+            value: 'git',
           },
-        ]);
+          {
+            name: 'Déploiement direct (nécessite une clé API Render)',
+            value: 'direct',
+          },
+        ],
+        default: 'git',
+      },
+    ]);
 
-        if (tryAlternative === 'git') {
-          deployMethod = 'git';
-        } else if (tryAlternative === 'docker') {
-          // Redémarrer le processus avec Docker
-          await dockerDeploy.deployWithDocker({
-            projectPath: process.cwd(),
-          });
-          return;
-        } else {
-          return;
-        }
-      }
+    deployMethod = methodChoice.method;
+  }
 
-      if (deployMethod !== 'git') {
+  if (deployMethod === 'direct') {
+    // Demander la clé API si elle n'a pas été fournie en option
+    let apiKey = options.apiKey;
+    let projectName = options.project || path.basename(process.cwd());
+
+    if (!apiKey) {
+      const deployInfo = await renderDeploy.promptDeploymentInfo();
+
+      if (!deployInfo.confirmDeploy) {
+        console.log(chalk.yellow('Déploiement annulé.'));
         return;
       }
+
+      apiKey = deployInfo.apiKey;
+      projectName = deployInfo.projectName;
     }
 
-    // Méthode de déploiement via Git
-    // Vérifier si git est installé
+    // Construire le projet pour la production
+    console.log(chalk.blue('Construction du projet pour le déploiement...'));
+
     try {
-      execSync('git --version', { stdio: 'pipe' });
+      execSync('cd frontend && npm run build', { stdio: 'inherit' });
     } catch (error) {
-      console.error(
-        chalk.red(
-          "Git n'est pas installé. Veuillez l'installer pour continuer ou utiliser l'option de déploiement direct ou Docker.",
-        ),
-      );
+      console.error(chalk.red('Échec de la construction du projet.'));
+      console.error(chalk.red(`Erreur: ${error.message}`));
       return;
     }
 
-    // Vérifier si le dépôt git est initialisé
-    const isGitRepo = fs.existsSync('.git');
-    if (!isGitRepo) {
-      const initGit = await inquirer.prompt([
-        {
-          type: 'confirm',
-          name: 'init',
-          message:
-            "Ce dossier n'est pas un dépôt Git. Voulez-vous l'initialiser?",
-          default: true,
-        },
-      ]);
+    // Déployer l'application
+    const deployResult = await renderDeploy.deployToRender({
+      apiKey,
+      projectName,
+      projectPath: process.cwd(),
+    });
 
-      if (initGit.init) {
-        try {
-          execSync('git init', { stdio: 'pipe' });
-          console.log(chalk.green('Dépôt Git initialisé.'));
-        } catch (error) {
-          console.error(
-            chalk.red(
-              `Erreur lors de l'initialisation du dépôt: ${error.message}`,
-            ),
-          );
-          return;
-        }
-      } else {
-        console.log(
-          chalk.yellow(
-            'Déploiement annulé. Un dépôt Git est nécessaire pour ce type de déploiement.',
-          ),
-        );
-        return;
-      }
+    if (deployResult.success) {
+      console.log(
+        boxen(
+          chalk.green.bold('✨ Déploiement réussi! ✨') +
+            '\n\n' +
+            `Votre application est maintenant disponible à l'adresse:\n` +
+            `${chalk.cyan(deployResult.url)}`,
+          { padding: 1, borderColor: 'green', margin: 1 },
+        ),
+      );
     }
-
+  } else {
+    // Déploiement via Git
     // Guide de déploiement
     console.log(
       boxen(
@@ -905,6 +853,73 @@ program
           : 'xdg-open';
 
       execSync(`${open} https://render.com`, { stdio: 'ignore' });
+    }
+  }
+}
+
+// Nouvelle commande pour le rollback
+program
+  .command('rollback')
+  .description('Effectuer un rollback de déploiement')
+  .option('--platform <platform>', 'Plateforme (gcp)', 'gcp')
+  .option('--project <name>', 'Nom du projet')
+  .option('--env <environment>', 'Environnement (development|production)')
+  .option('--version <version>', 'Version vers laquelle revenir')
+  .action(async (options) => {
+    console.log(chalk.blue('🔄 Rollback de déploiement...'));
+
+    if (options.platform === 'gcp') {
+      await gcpDeploy.rollbackGCPDeployment({
+        projectName: options.project,
+        environment: options.env,
+        version: options.version,
+      });
+    } else {
+      console.log(
+        chalk.yellow("Le rollback n'est actuellement supporté que pour GCP"),
+      );
+    }
+  });
+
+// Nouvelle commande pour lister les déploiements
+program
+  .command('list')
+  .description('Lister les déploiements actifs')
+  .option('--platform <platform>', 'Plateforme (gcp)', 'gcp')
+  .option('--env <environment>', 'Environnement à consulter')
+  .action(async (options) => {
+    console.log(chalk.blue('📋 Liste des déploiements...'));
+
+    if (options.platform === 'gcp') {
+      await gcpDeploy.listGCPDeployments({
+        environment: options.env,
+      });
+    } else {
+      console.log(
+        chalk.yellow(
+          "La liste des déploiements n'est actuellement supportée que pour GCP",
+        ),
+      );
+    }
+  });
+
+// Nouvelle commande pour vérifier le statut du serveur
+program
+  .command('status')
+  .description('Vérifier le statut du serveur de déploiement')
+  .option('--platform <platform>', 'Plateforme (gcp)', 'gcp')
+  .option('--url <url>', 'URL du serveur de déploiement')
+  .action(async (options) => {
+    console.log(chalk.blue('🔍 Vérification du statut...'));
+
+    if (options.platform === 'gcp') {
+      await gcpDeploy.checkGCPDeployServerStatus(options.url);
+    } else {
+      console.log(
+        chalk.yellow(
+          "La vérification de statut n'est actuellement supportée que pour GCP",
+        ),
+      );
     }
   });
 
