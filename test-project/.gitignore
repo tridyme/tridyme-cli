@@ -1,0 +1,7 @@
+# Ignorer les dossiers env pour le backend
+/backend/env/
+# Ignorer les dossiers node_modules pour le frontend
+/frontend/node_modules/
+/frontend/module-federation/node_modules/
+# Ignorer le dossier __pycache__
+__pycache__/
