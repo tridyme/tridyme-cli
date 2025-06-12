@@ -14,10 +14,114 @@ const os = require('os');
 // Version depuis package.json
 const packageJson = require('./package.json');
 
-// Import des modules de déploiement
-const renderDeploy = require('./render-deploy');
-const dockerDeploy = require('./docker-deploy');
-const gcpDeploy = require('./gcp-deploy'); // Nouveau module GCP
+// Module de déploiement simplifié
+const deployModule = require('./deploy');
+
+// URL du SDK (dépôt GitLab privé)
+const SDK_REPO_URL = 'https://gitlab.com/socotec-blq/sdk-webapp-python.git';
+
+// Fonction pour gérer l'authentification GitLab
+async function handleGitLabAuth() {
+  console.log(chalk.blue('\n🔐 Authentification GitLab requise\n'));
+  console.log(chalk.yellow('Le SDK TriDyme est hébergé sur un GitLab privé.'));
+  console.log(chalk.yellow('Vous devez avoir accès au dépôt pour continuer.\n'));
+
+  const authMethods = await inquirer.prompt([
+    {
+      type: 'list',
+      name: 'method',
+      message: 'Comment souhaitez-vous vous authentifier?',
+      choices: [
+        {
+          name: '🔑 Token d\'accès personnel GitLab',
+          value: 'token',
+        },
+        {
+          name: '👤 Nom d\'utilisateur et mot de passe',
+          value: 'credentials',
+        },
+        {
+          name: '🔧 J\'ai déjà configuré Git avec mes credentials',
+          value: 'existing',
+        },
+      ],
+    },
+  ]);
+
+  let authUrl = SDK_REPO_URL;
+
+  if (authMethods.method === 'token') {
+    const { token } = await inquirer.prompt([
+      {
+        type: 'password',
+        name: 'token',
+        message: 'Entrez votre token d\'accès GitLab:',
+        validate: (input) => input.trim() ? true : 'Le token est requis',
+      },
+    ]);
+    
+    // Format: https://oauth2:TOKEN@gitlab.com/path
+    authUrl = SDK_REPO_URL.replace('https://', `https://oauth2:${token}@`);
+    
+  } else if (authMethods.method === 'credentials') {
+    const credentials = await inquirer.prompt([
+      {
+        type: 'input',
+        name: 'username',
+        message: 'Nom d\'utilisateur GitLab:',
+        validate: (input) => input.trim() ? true : 'Le nom d\'utilisateur est requis',
+      },
+      {
+        type: 'password',
+        name: 'password',
+        message: 'Mot de passe GitLab:',
+        validate: (input) => input.trim() ? true : 'Le mot de passe est requis',
+      },
+    ]);
+    
+    // Format: https://username:password@gitlab.com/path
+    authUrl = SDK_REPO_URL.replace('https://', `https://${credentials.username}:${credentials.password}@`);
+    
+  } else if (authMethods.method === 'existing') {
+    console.log(chalk.green('✅ Utilisation de la configuration Git existante'));
+    authUrl = SDK_REPO_URL;
+  }
+
+  return authUrl;
+}
+
+// Fonction pour tester l'accès au dépôt GitLab
+async function testGitLabAccess(authUrl, projectPath) {
+  const spinner = ora('Test d\'accès au dépôt GitLab...').start();
+  
+  try {
+    // Tester l'accès avec ls-remote (plus léger qu'un clone)
+    execSync(`git ls-remote ${authUrl}`, { 
+      cwd: projectPath, 
+      stdio: 'pipe',
+      timeout: 10000, // 10 secondes timeout
+    });
+    
+    spinner.succeed('Accès au dépôt GitLab confirmé');
+    return true;
+  } catch (error) {
+    spinner.fail('Échec de l\'accès au dépôt GitLab');
+    
+    console.error(chalk.red('❌ Impossible d\'accéder au dépôt GitLab'));
+    console.log(chalk.yellow('\\nCauses possibles:'));
+    console.log(chalk.white('• Credentials incorrects'));
+    console.log(chalk.white('• Pas d\'accès au dépôt privé'));
+    console.log(chalk.white('• Problème de connexion réseau'));
+    console.log(chalk.white('• Token expiré ou révoqué'));
+    
+    console.log(chalk.blue('\\n💡 Pour obtenir un token d\'accès:'));
+    console.log(chalk.white('1. Connectez-vous à GitLab'));
+    console.log(chalk.white('2. Allez dans Préférences > Tokens d\'accès'));
+    console.log(chalk.white('3. Créez un token avec les permissions \"read_repository\"'));
+    
+    return false;
+  }
+}
 
 // Fonction pour vérifier la politique d'exécution PowerShell
 async function checkPowerShellExecutionPolicy() {
@@ -202,11 +306,49 @@ program
       // Créer le dossier du projet
       fs.mkdirSync(projectPath, { recursive: true });
 
-      // Clone le référentiel
+      // Gérer l'authentification GitLab
+      let authUrl;
+      let accessGranted = false;
+      let retryCount = 0;
+      const maxRetries = 3;
+
+      while (!accessGranted && retryCount < maxRetries) {
+        try {
+          authUrl = await handleGitLabAuth();
+          accessGranted = await testGitLabAccess(authUrl, projectPath);
+          
+          if (!accessGranted) {
+            retryCount++;
+            if (retryCount < maxRetries) {
+              const { retry } = await inquirer.prompt([
+                {
+                  type: 'confirm',
+                  name: 'retry',
+                  message: 'Voulez-vous réessayer avec d\'autres credentials?',
+                  default: true,
+                },
+              ]);
+              
+              if (!retry) break;
+            }
+          }
+        } catch (error) {
+          console.error(chalk.red(`Erreur d'authentification: ${error.message}`));
+          break;
+        }
+      }
+
+      if (!accessGranted) {
+        console.error(chalk.red('❌ Impossible d\'accéder au SDK TriDyme'));
+        console.log(chalk.yellow('Contactez votre administrateur pour obtenir l\'accès au dépôt GitLab.'));
+        return;
+      }
+
+      // Clone le référentiel avec authentification
       const spinner = ora('Clonage du SDK TriDyme...').start();
       try {
         execSync(
-          'git clone https://github.com/tridyme/sdk-webapp-python.git .',
+          `git clone ${authUrl} .`,
           { cwd: projectPath, stdio: 'pipe' },
         );
         spinner.succeed('SDK TriDyme cloné avec succès');
@@ -300,10 +442,10 @@ CI=false`;
       try {
         // Créer l'environnement virtuel Python
         const pythonCmd = os.platform() === 'win32' ? 'python' : 'python3';
-        execSync(`cd backend && ${pythonCmd} -m venv env`, {
-          cwd: projectPath,
+        execSync(`${pythonCmd} -m venv env`, {
+          cwd: path.join(projectPath, 'backend'),
           stdio: 'pipe',
-          shell: true,
+          shell: os.platform() === 'win32' ? true : '/bin/bash',
         });
         spinner.succeed('Environnement Python créé');
 
@@ -313,30 +455,37 @@ CI=false`;
 
         if (os.platform() === 'win32') {
           execSync(
-            `cd backend && .\\env\\Scripts\\python.exe -m pip install --upgrade pip`,
+            `.\\env\\Scripts\\python.exe -m pip install --upgrade pip`,
             {
-              cwd: projectPath,
+              cwd: path.join(projectPath, 'backend'),
               stdio: 'pipe',
               shell: true,
             },
           );
 
           execSync(
-            `cd backend && .\\env\\Scripts\\pip.exe install -r requirements.txt`,
+            `.\\env\\Scripts\\pip.exe install -r requirements.txt`,
             {
-              cwd: projectPath,
+              cwd: path.join(projectPath, 'backend'),
               stdio: 'pipe',
               shell: true,
             },
           );
         } else {
-          const activateCmd = 'source env/bin/activate';
-          const pipInstallCmd = `cd backend && ${activateCmd} && pip install --upgrade pip && pip install -r requirements.txt`;
-
-          execSync(pipInstallCmd, {
-            cwd: projectPath,
+          // Approche Unix/macOS - utiliser directement les exécutables de l'environnement virtuel
+          const pythonPath = path.join(projectPath, 'backend', 'env', 'bin', 'python');
+          const pipPath = path.join(projectPath, 'backend', 'env', 'bin', 'pip');
+          
+          execSync(`${pythonPath} -m pip install --upgrade pip`, {
+            cwd: path.join(projectPath, 'backend'),
             stdio: 'pipe',
-            shell: true,
+            shell: '/bin/bash',
+          });
+
+          execSync(`${pipPath} install -r requirements.txt`, {
+            cwd: path.join(projectPath, 'backend'),
+            stdio: 'pipe',
+            shell: '/bin/bash',
           });
         }
 
@@ -346,16 +495,16 @@ CI=false`;
         spinner.text = 'Installation des dépendances frontend...';
         spinner.start();
 
-        execSync('cd frontend && npm install', {
-          cwd: projectPath,
+        execSync('npm install', {
+          cwd: path.join(projectPath, 'frontend'),
           stdio: 'pipe',
-          shell: true,
+          shell: os.platform() === 'win32' ? true : '/bin/bash',
         });
 
-        execSync('cd frontend/module-federation && npm install', {
-          cwd: projectPath,
+        execSync('npm install', {
+          cwd: path.join(projectPath, 'frontend', 'module-federation'),
           stdio: 'pipe',
-          shell: true,
+          shell: os.platform() === 'win32' ? true : '/bin/bash',
         });
 
         spinner.succeed('Dépendances frontend installées');
@@ -463,6 +612,7 @@ program
           execSync(createEnvCommand, {
             cwd: path.join(process.cwd(), 'backend'),
             stdio: 'pipe',
+            shell: os.platform() === 'win32' ? true : '/bin/bash',
           });
           spinner.succeed('Environnement virtuel Python créé');
         } catch (error) {
@@ -470,11 +620,36 @@ program
             "Échec de la création de l'environnement virtuel Python",
           );
           console.error(chalk.red(`Erreur: ${error.message}`));
-          console.log(
-            chalk.yellow(
-              'Astuce: Assurez-vous que Python est installé et ajouté au PATH.',
-            ),
-          );
+          
+          // Diagnostics plus détaillés
+          console.log(chalk.yellow('\n🔍 Diagnostic:'));
+          
+          // Vérifier si Python est disponible
+          try {
+            const pythonVersion = execSync(os.platform() === 'win32' ? 'python --version' : 'python3 --version', {
+              stdio: 'pipe',
+              encoding: 'utf8',
+            });
+            console.log(chalk.green(`✅ Python trouvé: ${pythonVersion.trim()}`));
+          } catch (pythonError) {
+            console.log(chalk.red('❌ Python non trouvé dans le PATH'));
+            console.log(chalk.yellow('💡 Installez Python depuis https://python.org'));
+            return;
+          }
+          
+          // Vérifier les permissions
+          const backendPath = path.join(process.cwd(), 'backend');
+          if (!fs.existsSync(backendPath)) {
+            console.log(chalk.red('❌ Dossier backend non trouvé'));
+            console.log(chalk.yellow('💡 Assurez-vous d\'être dans un projet TriDyme valide'));
+            return;
+          }
+          
+          console.log(chalk.yellow('💡 Essayez de créer l\'environnement manuellement:'));
+          const manualCmd = os.platform() === 'win32' 
+            ? 'cd backend && python -m venv env'
+            : 'cd backend && python3 -m venv env';
+          console.log(chalk.white(`   ${manualCmd}`));
           return;
         }
       }
@@ -500,14 +675,22 @@ program
             shell: true,
           });
         } else {
-          // Approche Unix/macOS
-          const activateCmd = 'source env/bin/activate';
-          const pipInstallCmd = `${activateCmd} && pip install -r requirements.txt`;
-
-          execSync(pipInstallCmd, {
+          // Approche Unix/macOS - utiliser directement l'exécutable Python de l'environnement virtuel
+          const pythonPath = path.join(process.cwd(), 'backend', 'env', 'bin', 'python');
+          const pipPath = path.join(process.cwd(), 'backend', 'env', 'bin', 'pip');
+          
+          // Mise à jour de pip
+          execSync(`${pythonPath} -m pip install --upgrade pip`, {
             cwd: path.join(process.cwd(), 'backend'),
             stdio: 'pipe',
-            shell: true,
+            shell: '/bin/bash',
+          });
+          
+          // Installation des dépendances
+          execSync(`${pipPath} install -r requirements.txt`, {
+            cwd: path.join(process.cwd(), 'backend'),
+            stdio: 'pipe',
+            shell: '/bin/bash',
           });
         }
 
@@ -529,18 +712,17 @@ program
     let backendProcess;
     if (os.platform() === 'win32') {
       // Approche spécifique à Windows
-      backendProcess = spawn('env\\Scripts\\python.exe main.py', {
+      const pythonExe = path.join(process.cwd(), 'backend', 'env', 'Scripts', 'python.exe');
+      backendProcess = spawn(pythonExe, ['main.py'], {
         cwd: path.join(process.cwd(), 'backend'),
         stdio: 'inherit',
-        shell: true,
       });
     } else {
-      // Approche Unix/macOS
-      const backendCmd = 'source env/bin/activate && python main.py';
-      backendProcess = spawn(backendCmd, {
+      // Approche Unix/macOS - utiliser directement l'exécutable Python de l'environnement virtuel
+      const pythonExe = path.join(process.cwd(), 'backend', 'env', 'bin', 'python');
+      backendProcess = spawn(pythonExe, ['main.py'], {
         cwd: path.join(process.cwd(), 'backend'),
         stdio: 'inherit',
-        shell: true,
       });
     }
 
@@ -595,7 +777,11 @@ program
     console.log(chalk.blue('Construction du projet pour la production...'));
 
     try {
-      execSync('cd frontend && npm run build', { stdio: 'inherit' });
+      execSync('npm run build', { 
+        cwd: path.join(process.cwd(), 'frontend'),
+        stdio: 'inherit',
+        shell: os.platform() === 'win32' ? true : '/bin/bash',
+      });
       console.log(chalk.green('✅ Projet construit avec succès!'));
     } catch (error) {
       console.error(
@@ -604,324 +790,25 @@ program
     }
   });
 
-// Commande pour déployer sur différentes plateformes
+// Commande pour déployer l'application
 program
   .command('deploy')
-  .description("Déployer l'application")
-  .option(
-    '--platform <platform>',
-    'Plateforme de déploiement (render|docker|gcp)',
-    'render',
-  )
+  .description("Déployer l'application via CI/CD")
   .option(
     '--env <environment>',
     'Environnement (development|production)',
     'development',
   )
-  .option('--api-key <key>', 'Clé API pour le déploiement')
-  .option('--project <name>', 'Nom du projet')
-  .option('--direct', 'Déploiement direct sans Git (pour Render)')
-  .option('--docker', 'Déployer via Docker (pour Render)')
   .action(async (options) => {
-    console.log(chalk.blue('Préparation du déploiement...'));
-
-    // Vérifier si nous sommes dans un projet TriDyme
-    if (!fs.existsSync('backend') || !fs.existsSync('frontend')) {
-      console.error(
-        chalk.red('Ce dossier ne semble pas être un projet TriDyme valide.'),
-      );
-      return;
-    }
-
-    // Demander la plateforme de déploiement si non spécifiée
-    let platform = options.platform;
-
-    if (!platform || !['render', 'docker', 'gcp'].includes(platform)) {
-      const platformChoice = await inquirer.prompt([
-        {
-          type: 'list',
-          name: 'platform',
-          message: 'Sur quelle plateforme souhaitez-vous déployer?',
-          choices: [
-            {
-              name: '🌐 Google Cloud Platform (GKE) - Recommandé pour la production',
-              value: 'gcp',
-            },
-            {
-              name: '🚀 Render - Simple et rapide',
-              value: 'render',
-            },
-            {
-              name: '🐳 Docker sur Render - Déploiement conteneurisé',
-              value: 'docker',
-            },
-          ],
-          default: 'gcp',
-        },
-      ]);
-      platform = platformChoice.platform;
-    }
-
-    // Déploiement selon la plateforme choisie
-    switch (platform) {
-      case 'gcp':
-        console.log(chalk.blue('🌐 Déploiement sur Google Cloud Platform...'));
-        const gcpResult = await gcpDeploy.deployToGCP({
-          projectPath: process.cwd(),
-          projectName: options.project,
-          environment: options.env,
-          apiKey: options.apiKey,
-        });
-
-        if (!gcpResult.success && !gcpResult.cancelled) {
-          console.log(chalk.yellow('\n💡 Vous pouvez aussi essayer:'));
-          console.log(chalk.white('• tridyme deploy --platform render'));
-          console.log(chalk.white('• tridyme deploy --platform docker'));
-        }
-        break;
-
-      case 'docker':
-        console.log(chalk.blue('🐳 Déploiement Docker sur Render...'));
-
-        // Vérifier que Docker est installé
-        if (!dockerDeploy.checkDockerInstalled()) {
-          console.error(
-            chalk.red("Docker n'est pas installé ou n'est pas accessible."),
-          );
-          console.log(
-            chalk.yellow(
-              'Veuillez installer Docker: https://docs.docker.com/get-docker/',
-            ),
-          );
-
-          const { tryAlternative } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'tryAlternative',
-              message: 'Que voulez-vous faire?',
-              choices: [
-                { name: 'Essayer le déploiement GCP', value: 'gcp' },
-                {
-                  name: 'Essayer le déploiement Render standard',
-                  value: 'render',
-                },
-                { name: 'Annuler', value: 'cancel' },
-              ],
-            },
-          ]);
-
-          if (tryAlternative === 'gcp') {
-            await gcpDeploy.deployToGCP({
-              projectPath: process.cwd(),
-              environment: options.env,
-            });
-          } else if (tryAlternative === 'render') {
-            // Fallback vers déploiement Render standard
-            await handleRenderDeployment(options);
-          }
-          return;
-        }
-
-        await dockerDeploy.deployWithDocker({
-          projectPath: process.cwd(),
-          apiKey: options.apiKey,
-        });
-        break;
-
-      case 'render':
-      default:
-        await handleRenderDeployment(options);
-        break;
-    }
-  });
-
-// Fonction helper pour gérer le déploiement Render
-async function handleRenderDeployment(options) {
-  console.log(chalk.blue('🚀 Déploiement sur Render...'));
-
-  // Demander la méthode de déploiement si non spécifiée
-  let deployMethod = options.direct ? 'direct' : null;
-
-  if (!deployMethod) {
-    const methodChoice = await inquirer.prompt([
-      {
-        type: 'list',
-        name: 'method',
-        message: 'Comment souhaitez-vous déployer sur Render?',
-        choices: [
-          {
-            name: 'Via Git (recommandé pour la plupart des utilisateurs)',
-            value: 'git',
-          },
-          {
-            name: 'Déploiement direct (nécessite une clé API Render)',
-            value: 'direct',
-          },
-        ],
-        default: 'git',
-      },
-    ]);
-
-    deployMethod = methodChoice.method;
-  }
-
-  if (deployMethod === 'direct') {
-    // Demander la clé API si elle n'a pas été fournie en option
-    let apiKey = options.apiKey;
-    let projectName = options.project || path.basename(process.cwd());
-
-    if (!apiKey) {
-      const deployInfo = await renderDeploy.promptDeploymentInfo();
-
-      if (!deployInfo.confirmDeploy) {
-        console.log(chalk.yellow('Déploiement annulé.'));
-        return;
-      }
-
-      apiKey = deployInfo.apiKey;
-      projectName = deployInfo.projectName;
-    }
-
-    // Construire le projet pour la production
-    console.log(chalk.blue('Construction du projet pour le déploiement...'));
-
-    try {
-      execSync('cd frontend && npm run build', { stdio: 'inherit' });
-    } catch (error) {
-      console.error(chalk.red('Échec de la construction du projet.'));
-      console.error(chalk.red(`Erreur: ${error.message}`));
-      return;
-    }
-
-    // Déployer l'application
-    const deployResult = await renderDeploy.deployToRender({
-      apiKey,
-      projectName,
+    await deployModule.initiateCICDDeploy({
       projectPath: process.cwd(),
+      environment: options.env,
     });
-
-    if (deployResult.success) {
-      console.log(
-        boxen(
-          chalk.green.bold('✨ Déploiement réussi! ✨') +
-            '\n\n' +
-            `Votre application est maintenant disponible à l'adresse:\n` +
-            `${chalk.cyan(deployResult.url)}`,
-          { padding: 1, borderColor: 'green', margin: 1 },
-        ),
-      );
-    }
-  } else {
-    // Déploiement via Git
-    // Guide de déploiement
-    console.log(
-      boxen(
-        chalk.bold('Guide de déploiement sur Render via Git') +
-          '\n\n' +
-          '1. Créez un dépôt sur GitHub ou GitLab.\n' +
-          '2. Ajoutez votre code au dépôt:\n' +
-          '   git add .\n' +
-          '   git commit -m "Initial commit"\n' +
-          '   git remote add origin <URL_DU_DEPOT>\n' +
-          '   git push -u origin main\n\n' +
-          '3. Créez un compte sur Render (https://render.com)\n' +
-          '4. Créez un nouveau Web Service et connectez-le à votre dépôt\n' +
-          '5. Configuration:\n' +
-          '   - Build Command: `cd frontend && npm run build`\n' +
-          '   - Start Command: `uvicorn backend.main:app --host 0.0.0.0 --port $PORT`\n\n' +
-          'Pour plus de détails, consultez la documentation dans README.md',
-        { padding: 1, borderColor: 'blue', margin: 1 },
-      ),
-    );
-
-    // Proposer d'ouvrir le site web de Render
-    const openRender = await inquirer.prompt([
-      {
-        type: 'confirm',
-        name: 'open',
-        message: 'Voulez-vous ouvrir le site web de Render?',
-        default: true,
-      },
-    ]);
-
-    if (openRender.open) {
-      const open =
-        os.platform() === 'win32'
-          ? 'start'
-          : os.platform() === 'darwin'
-          ? 'open'
-          : 'xdg-open';
-
-      execSync(`${open} https://render.com`, { stdio: 'ignore' });
-    }
-  }
-}
-
-// Nouvelle commande pour le rollback
-program
-  .command('rollback')
-  .description('Effectuer un rollback de déploiement')
-  .option('--platform <platform>', 'Plateforme (gcp)', 'gcp')
-  .option('--project <name>', 'Nom du projet')
-  .option('--env <environment>', 'Environnement (development|production)')
-  .option('--version <version>', 'Version vers laquelle revenir')
-  .action(async (options) => {
-    console.log(chalk.blue('🔄 Rollback de déploiement...'));
-
-    if (options.platform === 'gcp') {
-      await gcpDeploy.rollbackGCPDeployment({
-        projectName: options.project,
-        environment: options.env,
-        version: options.version,
-      });
-    } else {
-      console.log(
-        chalk.yellow("Le rollback n'est actuellement supporté que pour GCP"),
-      );
-    }
   });
 
-// Nouvelle commande pour lister les déploiements
-program
-  .command('list')
-  .description('Lister les déploiements actifs')
-  .option('--platform <platform>', 'Plateforme (gcp)', 'gcp')
-  .option('--env <environment>', 'Environnement à consulter')
-  .action(async (options) => {
-    console.log(chalk.blue('📋 Liste des déploiements...'));
 
-    if (options.platform === 'gcp') {
-      await gcpDeploy.listGCPDeployments({
-        environment: options.env,
-      });
-    } else {
-      console.log(
-        chalk.yellow(
-          "La liste des déploiements n'est actuellement supportée que pour GCP",
-        ),
-      );
-    }
-  });
 
-// Nouvelle commande pour vérifier le statut du serveur
-program
-  .command('status')
-  .description('Vérifier le statut du serveur de déploiement')
-  .option('--platform <platform>', 'Plateforme (gcp)', 'gcp')
-  .option('--url <url>', 'URL du serveur de déploiement')
-  .action(async (options) => {
-    console.log(chalk.blue('🔍 Vérification du statut...'));
 
-    if (options.platform === 'gcp') {
-      await gcpDeploy.checkGCPDeployServerStatus(options.url);
-    } else {
-      console.log(
-        chalk.yellow(
-          "La vérification de statut n'est actuellement supportée que pour GCP",
-        ),
-      );
-    }
-  });
 
 // Commande pour mettre à jour le SDK
 program
@@ -962,10 +849,49 @@ program
     const tempDir = path.join(os.tmpdir(), 'tridyme-sdk-update-' + Date.now());
     fs.mkdirSync(tempDir, { recursive: true });
 
+    // Gérer l'authentification GitLab pour la mise à jour
+    let authUrl;
+    let accessGranted = false;
+    let retryCount = 0;
+    const maxRetries = 3;
+
+    while (!accessGranted && retryCount < maxRetries) {
+      try {
+        authUrl = await handleGitLabAuth();
+        accessGranted = await testGitLabAccess(authUrl, tempDir);
+        
+        if (!accessGranted) {
+          retryCount++;
+          if (retryCount < maxRetries) {
+            const { retry } = await inquirer.prompt([
+              {
+                type: 'confirm',
+                name: 'retry',
+                message: 'Voulez-vous réessayer avec d\'autres credentials?',
+                default: true,
+              },
+            ]);
+            
+            if (!retry) break;
+          }
+        }
+      } catch (error) {
+        console.error(chalk.red(`Erreur d'authentification: ${error.message}`));
+        break;
+      }
+    }
+
+    if (!accessGranted) {
+      console.error(chalk.red('❌ Impossible d\'accéder au SDK TriDyme'));
+      console.log(chalk.yellow('Contactez votre administrateur pour obtenir l\'accès au dépôt GitLab.'));
+      fs.removeSync(tempDir);
+      return;
+    }
+
     const spinner = ora('Téléchargement du SDK le plus récent...').start();
 
     try {
-      execSync('git clone https://github.com/tridyme/sdk-webapp-python.git .', {
+      execSync(`git clone ${authUrl} .`, {
         cwd: tempDir,
         stdio: 'pipe',
       });

@@ -2,6 +2,8 @@
 
 Un outil en ligne de commande pour simplifier le développement et le déploiement d'applications TriDyme pour les ingénieurs en structure.
 
+> **Note importante** : Le SDK TriDyme est hébergé sur un GitLab privé. Vous devez avoir un accès autorisé pour utiliser cet outil.
+
 ## 🚀 Installation
 
 ```bash
@@ -11,6 +13,22 @@ npm install -g tridyme-cli
 # Vérifier l'installation
 tridyme --version
 ```
+
+## 🔐 Authentification GitLab
+
+Le SDK TriDyme est hébergé sur un GitLab privé (`gitlab.com/socotec-blq/sdk-webapp-python`). Vous devez disposer d'un accès autorisé.
+
+### Méthodes d'authentification supportées :
+
+1. **Token d'accès personnel GitLab** (recommandé)
+   - Créez un token dans GitLab : Préférences > Tokens d'accès
+   - Permissions requises : `read_repository`
+
+2. **Nom d'utilisateur et mot de passe**
+   - Vos identifiants GitLab standards
+
+3. **Configuration Git existante**
+   - Si vous avez déjà configuré Git avec vos credentials GitLab
 
 ## 📋 Commandes
 
@@ -50,23 +68,23 @@ Cette commande lance :
 tridyme build
 ```
 
-### Déployer sur Render
+### Déployer l'application
 
 ```bash
-# Dans le dossier de votre projet - déploiement via Git (méthode standard)
+# Déploiement CI/CD automatique
 tridyme deploy
 
-# Déploiement direct sans Git (nécessite une clé API Render)
-tridyme deploy --direct
+# Déployer en développement (branche develop)
+tridyme deploy --env development
 
-# Déploiement direct avec clé API fournie en argument
-tridyme deploy --direct --api-key=votre_cle_api
+# Déployer en production (branche main)
+tridyme deploy --env production
 ```
 
-Cette commande offre deux méthodes de déploiement :
+Le déploiement utilise maintenant un système CI/CD automatique basé sur Git :
 
-1. **Via Git** : La méthode standard qui vous guide à travers le processus de déploiement en utilisant un dépôt Git.
-2. **Déploiement direct** : Permet de déployer directement sur Render sans passer par Git (nécessite une clé API Render).
+- **Développement** : Push sur la branche `develop` → Déploiement automatique sur `*-dev.tridyme.com`
+- **Production** : Push sur la branche `main` → Déploiement automatique sur `*.tridyme.com`
 
 ### Mettre à jour le SDK
 
@@ -102,56 +120,29 @@ Pour personnaliser votre application, vous pouvez modifier les fichiers suivants
 - `frontend/.env.production` - Variables d'environnement pour la production
 - `frontend/src/Views/` - Composants React pour vos vues
 
-## 📦 Déploiement
+## 📦 Déploiement CI/CD
 
-### Création et configuration d'un dépôt Git
+Le déploiement est maintenant entièrement automatisé via un système CI/CD basé sur Git. Plus besoin de configuration manuelle !
 
-Pour déployer votre application, vous aurez besoin de créer un dépôt Git. Voici les étapes à suivre :
+### Fonctionnement
 
-1. **Initialiser un dépôt Git local** (si ce n'est pas déjà fait) :
+1. **Développement local** : Travaillez sur votre projet normalement
+2. **Commit et push** : Commitez vos changements
+3. **Déploiement automatique** : Le CLI pousse sur la bonne branche pour déclencher le déploiement
 
-   ```bash
-   cd mon-projet-calcul
-   git init
-   ```
+### Branches de déploiement
 
-2. **Ajouter vos fichiers au dépôt** :
+- **`develop`** → Environnement de développement (`*-dev.tridyme.com`)
+- **`main`** → Environnement de production (`*.tridyme.com`)
 
-   ```bash
-   git add .
-   git commit -m "Initial commit"
-   ```
+### Configuration automatique
 
-3. **Créer un dépôt sur GitHub/GitLab** :
-
-   - Connectez-vous à votre compte [GitHub](https://github.com) ou [GitLab](https://gitlab.com)
-   - Créez un nouveau dépôt (sans README, ni .gitignore)
-   - Notez l'URL du dépôt (par exemple : `https://github.com/votre-utilisateur/mon-projet.git`)
-
-4. **Lier votre dépôt local au dépôt distant** :
-
-   ```bash
-   git remote add origin https://github.com/votre-utilisateur/mon-projet.git
-   git push -u origin main
-   ```
-
-   _Note_ : Si votre branche principale est nommée "master" au lieu de "main", utilisez :
-
-   ```bash
-   git push -u origin master
-   ```
-
-### Sur Render
-
-Une fois votre dépôt Git configuré :
-
-1. Créez un dépôt Git et poussez votre code
-2. Créez un compte sur [Render](https://render.com)
-3. Créez un nouveau Web Service et connectez-le à votre dépôt
-4. Configuration :
-   - **Build Command** : `npm run build`
-   - **Start Command** : `uvicorn backend.main:app --host 0.0.0.0 --port $PORT`
-   - **Environment Variables** : Ajoutez les variables d'environnement de votre fichier `.env`
+Le CLI gère automatiquement :
+- ✅ Initialisation du dépôt Git si nécessaire
+- ✅ Création des branches de déploiement
+- ✅ Configuration des remotes
+- ✅ Build du frontend pour la production
+- ✅ Push vers la bonne branche selon l'environnement
 
 ## 📝 Notes pour les utilisateurs Windows
 

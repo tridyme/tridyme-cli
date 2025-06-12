@@ -1,7 +1,7 @@
 {
   "name": "tridyme-cli",
   "version": "0.0.5",
-  "description": "CLI pour créer et gérer des applications TriDyme avec support GCP/GKE",
+  "description": "CLI pour créer et gérer des applications TriDyme avec déploiement CI/CD automatique (accès GitLab privé requis)",
   "main": "index.js",
   "bin": {
     "tridyme": "./index.js"
@@ -24,12 +24,10 @@
     "sdk",
     "python",
     "react",
-    "gcp",
-    "gke",
-    "kubernetes",
-    "docker",
+    "cicd",
+    "git",
     "deployment",
-    "infrastructure"
+    "automation"
   ],
   "author": "TriDyme",
   "license": "MIT",
@@ -42,20 +40,13 @@
   },
   "homepage": "https://github.com/tridyme/tridyme-cli#readme",
   "dependencies": {
-    "archiver": "^6.0.1",
-    "axios": "^1.6.2",
     "boxen": "^5.1.2",
     "chalk": "^4.1.2",
     "commander": "^11.1.0",
-    "dotenv": "^16.3.1",
-    "form-data": "^4.0.0",
     "fs-extra": "^11.2.0",
     "inquirer": "^8.2.6",
     "ora": "^5.4.1",
-    "slugify": "^1.6.6",
-    "unzipper": "^0.10.14",
-    "uuid": "^9.0.1",
-    "xml2js": "^0.6.2"
+    "slugify": "^1.6.6"
   },
   "devDependencies": {
     "@types/jest": "^29.5.8",
@@ -75,10 +66,7 @@
   "preferGlobal": true,
   "files": [
     "index.js",
-    "render-deploy.js",
-    "docker-deploy.js",
-    "gcp-deploy.js",
-    "tridyme-cloud-deploy.js",
+    "deploy.js",
     "package.json",
     "README.md",
     "LICENSE"
