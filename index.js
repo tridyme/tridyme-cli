@@ -18,7 +18,203 @@ const packageJson = require('./package.json');
 const deployModule = require('./deploy');
 
 // URL du SDK (dépôt GitLab privé)
-const SDK_REPO_URL = 'https://gitlab.com/socotec-blq/sdk-webapp-python.git';
+const SDK_REPO_URL = 'https://gitlab.com/tridyme/sdk-webapp-python.git';
+
+// Détecte la meilleure version de Python disponible (>= 3.10 requis par le SDK)
+function detectPythonCommand() {
+  const candidates =
+    os.platform() === 'win32'
+      ? ['python3.12', 'python3.11', 'python3.10', 'python']
+      : ['python3.12', 'python3.11', 'python3.10', 'python3'];
+
+  for (const cmd of candidates) {
+    try {
+      const version = execSync(`${cmd} --version`, {
+        stdio: 'pipe',
+        encoding: 'utf8',
+      }).trim();
+      // Extraire le numéro de version (ex: "Python 3.11.5" -> [3, 11])
+      const match = version.match(/Python (\d+)\.(\d+)/);
+      if (match) {
+        const major = parseInt(match[1], 10);
+        const minor = parseInt(match[2], 10);
+        if (major >= 3 && minor >= 10) {
+          return { cmd, version };
+        }
+      }
+    } catch (error) {
+      // Cette version n'est pas disponible, essayer la suivante
+    }
+  }
+  return null;
+}
+
+// Fonction pour lire un fichier .env et retourner un objet clé-valeur
+function readEnvFile(envPath) {
+  const env = {};
+  if (!fs.existsSync(envPath)) return env;
+  const content = fs.readFileSync(envPath, 'utf8');
+  content.split('\n').forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) return;
+    const eqIndex = trimmed.indexOf('=');
+    if (eqIndex === -1) return;
+    const key = trimmed.substring(0, eqIndex).trim();
+    let value = trimmed.substring(eqIndex + 1).trim();
+    // Retirer les guillemets
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    env[key] = value;
+  });
+  return env;
+}
+
+// Fonction pour générer le fichier CLAUDE.md dans un projet
+function generateClaudeMd(projectPath, projectConfig) {
+  const claudeMdContent = `# CLAUDE.md — Guide pour Claude Code
+
+## Présentation du projet
+
+Ce projet est une application TriDyme basée sur le SDK webapp Python.
+Il combine un **backend Python (FastAPI)** et un **frontend React** pour créer
+des applications de calcul d'ingénierie déployables sur la plateforme cloud TriDyme.
+
+- **Nom du projet** : ${projectConfig.applicationName || 'Application TriDyme'}
+- **Entreprise** : ${projectConfig.companyName || 'TriDyme'}
+
+## Architecture du projet
+
+\`\`\`
+${projectConfig.projectSlug || 'projet'}/
+├── backend/                    # API Python FastAPI
+│   ├── main.py                # Point d'entrée, CORS, proxy dev, static files
+│   ├── api.py                 # Routes API (analysis, reinforcement, schema)
+│   ├── database.py            # Connexion MongoDB (Motor + Beanie)
+│   ├── mcp_tools.py           # Outils MCP (Model Context Protocol)
+│   ├── requirements.txt       # Dépendances Python
+│   ├── models/
+│   │   └── analysis.py        # Modèle Beanie pour MongoDB
+│   ├── schema/
+│   │   ├── parameters.py      # Modèles Pydantic pour les paramètres
+│   │   └── geometry_analysis_schema.py  # Schéma de l'application (paramètres, groupes UI)
+│   ├── utils/
+│   │   └── calculations.py    # Logique de calcul (surface, volume, ferraillage)
+│   └── tests/
+│       ├── test_api.py        # Tests des routes API
+│       ├── test_calculations.py # Tests unitaires des calculs
+│       └── test_mongodb.py    # Tests MongoDB
+├── frontend/                   # Interface React
+│   ├── package.json
+│   ├── src/
+│   │   ├── config.js          # Endpoints API et variables d'environnement
+│   │   ├── theme.js           # Thème Material-UI
+│   │   ├── Components/        # Composants réutilisables (InputElem, OutputElem, ThreeDElem, etc.)
+│   │   └── Views/
+│   │       └── Application/   # Vue principale de l'application
+│   │           ├── Scenes/
+│   │           │   ├── Inputs/   # Scène des paramètres d'entrée
+│   │           │   └── Outputs/  # Scène des résultats
+│   │           └── Utils/
+│   └── module-federation/      # Configuration Webpack Module Federation
+├── k8s/                        # Manifestes Kubernetes (production + develop)
+├── Dockerfile                  # Build multi-stage (Node + Python)
+├── .gitlab-ci.yml             # Pipeline CI/CD GitLab
+└── .env                       # Variables d'environnement
+\`\`\`
+
+## Communication Frontend-Backend
+
+1. Le frontend envoie **tout le state** au backend via \`POST /api/analysis\`
+2. Le backend **modifie les valeurs calculées** dans les données reçues
+3. Le backend **retourne les données modifiées** au frontend
+4. Le frontend **met à jour l'interface** automatiquement
+
+## Format des paramètres
+
+Tous les paramètres suivent cette structure :
+
+\`\`\`javascript
+parametre: {
+  id: 'nom_unique',
+  name: 'nom_unique',
+  label: 'A',
+  description: 'Description complète',
+  value: 0.0,
+  unit: { value: 'm', label: 'm' }
+}
+\`\`\`
+
+## Comment ajouter de nouveaux calculs
+
+### 1. Définir le schéma (backend)
+
+Modifier \`backend/schema/geometry_analysis_schema.py\` pour ajouter les nouveaux paramètres
+dans \`PARAMETERS\` et les groupes UI dans \`UI_GROUPS\`.
+
+### 2. Implémenter le calcul (backend)
+
+Ajouter la logique dans \`backend/utils/calculations.py\` dans la fonction \`process_analysis_data(data)\`.
+Les données arrivent sous forme de dict avec le format des paramètres ci-dessus.
+
+### 3. Ajouter les tests (backend)
+
+Créer des tests dans \`backend/tests/test_calculations.py\` et \`backend/tests/test_api.py\`.
+
+### 4. Le frontend se met à jour automatiquement
+
+Grâce au schéma et à l'état initial retournés par \`/api/schema\` et \`/api/initial-state\`,
+le frontend génère automatiquement les champs d'entrée et de sortie.
+
+## Routes API existantes
+
+| Route | Méthode | Description |
+|-------|---------|-------------|
+| \`/api/schema\` | GET | Retourne le schéma complet de l'application |
+| \`/api/initial-state\` | GET | Retourne l'état initial avec valeurs par défaut |
+| \`/api/analysis\` | POST | Effectue les calculs et retourne les résultats |
+| \`/api/analyses\` | POST | Sauvegarde une analyse en MongoDB |
+| \`/api/analyses/{id}\` | GET | Récupère une analyse sauvegardée |
+| \`/api/reinforcement\` | POST | Calcul de ferraillage béton armé (Eurocode 2) |
+| \`/health\` | GET | Health check |
+| \`/ready\` | GET | Readiness check |
+
+## Commandes utiles
+
+\`\`\`bash
+# Développement
+tridyme dev              # Lance backend + frontend
+tridyme dev --ai         # Lance backend + frontend + Claude Code
+
+# Tests backend
+cd backend
+source env/bin/activate
+python -m pytest tests/ --verbose
+python -m pytest tests/ --cov=. --cov-report=term-missing
+
+# Build production
+tridyme build
+
+# Déploiement
+tridyme deploy --env development
+tridyme deploy --env production
+\`\`\`
+
+## Conventions
+
+- **Backend** : Python 3.12+, FastAPI, async, Pydantic pour la validation
+- **Frontend** : React 16.8, Material-UI 4.x, composants fonctionnels
+- **Tests** : pytest pour le backend, format AAA (Arrange-Act-Assert)
+- **Style** : snake_case en Python, camelCase en JavaScript
+- **Pas de console.log** en production dans le frontend
+- **Toujours ajouter des tests** pour les nouveaux calculs
+`;
+
+  fs.writeFileSync(path.join(projectPath, 'CLAUDE.md'), claudeMdContent);
+}
 
 // Fonction pour gérer l'authentification GitLab
 async function handleGitLabAuth() {
@@ -59,10 +255,10 @@ async function handleGitLabAuth() {
         validate: (input) => input.trim() ? true : 'Le token est requis',
       },
     ]);
-    
+
     // Format: https://oauth2:TOKEN@gitlab.com/path
     authUrl = SDK_REPO_URL.replace('https://', `https://oauth2:${token}@`);
-    
+
   } else if (authMethods.method === 'credentials') {
     const credentials = await inquirer.prompt([
       {
@@ -78,10 +274,10 @@ async function handleGitLabAuth() {
         validate: (input) => input.trim() ? true : 'Le mot de passe est requis',
       },
     ]);
-    
+
     // Format: https://username:password@gitlab.com/path
     authUrl = SDK_REPO_URL.replace('https://', `https://${credentials.username}:${credentials.password}@`);
-    
+
   } else if (authMethods.method === 'existing') {
     console.log(chalk.green('✅ Utilisation de la configuration Git existante'));
     authUrl = SDK_REPO_URL;
@@ -93,32 +289,32 @@ async function handleGitLabAuth() {
 // Fonction pour tester l'accès au dépôt GitLab
 async function testGitLabAccess(authUrl, projectPath) {
   const spinner = ora('Test d\'accès au dépôt GitLab...').start();
-  
+
   try {
     // Tester l'accès avec ls-remote (plus léger qu'un clone)
-    execSync(`git ls-remote ${authUrl}`, { 
-      cwd: projectPath, 
+    execSync(`git ls-remote ${authUrl}`, {
+      cwd: projectPath,
       stdio: 'pipe',
       timeout: 10000, // 10 secondes timeout
     });
-    
+
     spinner.succeed('Accès au dépôt GitLab confirmé');
     return true;
   } catch (error) {
     spinner.fail('Échec de l\'accès au dépôt GitLab');
-    
+
     console.error(chalk.red('❌ Impossible d\'accéder au dépôt GitLab'));
     console.log(chalk.yellow('\\nCauses possibles:'));
     console.log(chalk.white('• Credentials incorrects'));
     console.log(chalk.white('• Pas d\'accès au dépôt privé'));
     console.log(chalk.white('• Problème de connexion réseau'));
     console.log(chalk.white('• Token expiré ou révoqué'));
-    
+
     console.log(chalk.blue('\\n💡 Pour obtenir un token d\'accès:'));
     console.log(chalk.white('1. Connectez-vous à GitLab'));
     console.log(chalk.white('2. Allez dans Préférences > Tokens d\'accès'));
     console.log(chalk.white('3. Créez un token avec les permissions \"read_repository\"'));
-    
+
     return false;
   }
 }
@@ -274,17 +470,15 @@ program
       console.log(
         boxen(
           chalk.bold('Résumé du projet à créer:') +
-            '\n\n' +
-            `${chalk.cyan('Nom du projet:')} ${nomProjet}\n` +
-            `${chalk.cyan("Nom de l'application:")} ${
-              answers.applicationName
-            }\n` +
-            `${chalk.cyan('Entreprise:')} ${answers.companyName}\n` +
-            `${chalk.cyan("URL de l'application:")} ${renderUrl}\n` +
-            `${chalk.cyan('URL de la plateforme API:')} ${
-              answers.platformApiUrl
-            }\n` +
-            `${chalk.cyan("ID de l'application:")} ${applicationId}`,
+          '\n\n' +
+          `${chalk.cyan('Nom du projet:')} ${nomProjet}\n` +
+          `${chalk.cyan("Nom de l'application:")} ${answers.applicationName
+          }\n` +
+          `${chalk.cyan('Entreprise:')} ${answers.companyName}\n` +
+          `${chalk.cyan("URL de l'application:")} ${renderUrl}\n` +
+          `${chalk.cyan('URL de la plateforme API:')} ${answers.platformApiUrl
+          }\n` +
+          `${chalk.cyan("ID de l'application:")} ${applicationId}`,
           { padding: 1, borderColor: 'green', margin: 1 },
         ),
       );
@@ -316,7 +510,7 @@ program
         try {
           authUrl = await handleGitLabAuth();
           accessGranted = await testGitLabAccess(authUrl, projectPath);
-          
+
           if (!accessGranted) {
             retryCount++;
             if (retryCount < maxRetries) {
@@ -328,7 +522,7 @@ program
                   default: true,
                 },
               ]);
-              
+
               if (!retry) break;
             }
           }
@@ -440,9 +634,26 @@ CI=false`;
       spinner.start();
 
       try {
+        // Détecter la meilleure version de Python
+        const pythonInfo = detectPythonCommand();
+        if (!pythonInfo) {
+          spinner.fail('Python >= 3.10 est requis mais non trouvé');
+          console.log(chalk.red('Le SDK TriDyme nécessite Python 3.10 ou supérieur.'));
+          console.log(chalk.yellow('Votre version actuelle ne satisfait pas cette exigence.'));
+          console.log(chalk.cyan('\nPour installer Python 3.12 :'));
+          if (os.platform() === 'darwin') {
+            console.log(chalk.white('  brew install python@3.12'));
+          } else if (os.platform() === 'win32') {
+            console.log(chalk.white('  Téléchargez depuis https://python.org/downloads/'));
+          } else {
+            console.log(chalk.white('  sudo apt install python3.12 python3.12-venv'));
+          }
+          return;
+        }
+        console.log(chalk.green(`Python détecté : ${pythonInfo.version} (${pythonInfo.cmd})`));
+
         // Créer l'environnement virtuel Python
-        const pythonCmd = os.platform() === 'win32' ? 'python' : 'python3';
-        execSync(`${pythonCmd} -m venv env`, {
+        execSync(`${pythonInfo.cmd} -m venv env`, {
           cwd: path.join(projectPath, 'backend'),
           stdio: 'pipe',
           shell: os.platform() === 'win32' ? true : '/bin/bash',
@@ -475,7 +686,7 @@ CI=false`;
           // Approche Unix/macOS - utiliser directement les exécutables de l'environnement virtuel
           const pythonPath = path.join(projectPath, 'backend', 'env', 'bin', 'python');
           const pipPath = path.join(projectPath, 'backend', 'env', 'bin', 'pip');
-          
+
           execSync(`${pythonPath} -m pip install --upgrade pip`, {
             cwd: path.join(projectPath, 'backend'),
             stdio: 'pipe',
@@ -511,6 +722,63 @@ CI=false`;
 
         // Tout a réussi
         console.log(chalk.green('✅ Projet initialisé avec succès'));
+
+        // Proposer la configuration de Claude Code
+        console.log('');
+        const { useClaudeCode } = await inquirer.prompt([
+          {
+            type: 'confirm',
+            name: 'useClaudeCode',
+            message:
+              'Souhaitez-vous utiliser Claude Code (IA) pour vous aider à développer votre application?',
+            default: false,
+          },
+        ]);
+
+        if (useClaudeCode) {
+          const { apiKey } = await inquirer.prompt([
+            {
+              type: 'password',
+              name: 'apiKey',
+              message:
+                'Entrez votre clé API Anthropic (ANTHROPIC_API_KEY):',
+              validate: (input) => {
+                if (!input.trim()) return 'La clé API est requise';
+                if (!input.startsWith('sk-ant-'))
+                  return 'La clé API doit commencer par "sk-ant-"';
+                return true;
+              },
+            },
+          ]);
+
+          // Ajouter la clé API dans le fichier .env
+          const envPath = path.join(projectPath, '.env');
+          let envContent = fs.readFileSync(envPath, 'utf8');
+          envContent += `\nANTHROPIC_API_KEY="${apiKey}"`;
+          fs.writeFileSync(envPath, envContent);
+
+          console.log(
+            chalk.green(
+              '✅ Clé API Anthropic configurée dans .env',
+            ),
+          );
+        } else {
+          console.log(
+            chalk.yellow(
+              'Vous pourrez configurer Claude Code plus tard en ajoutant ANTHROPIC_API_KEY dans le fichier .env de votre projet.',
+            ),
+          );
+        }
+
+        // Générer le fichier CLAUDE.md
+        generateClaudeMd(projectPath, {
+          applicationName: answers.applicationName,
+          companyName: answers.companyName,
+          projectSlug,
+        });
+        console.log(
+          chalk.green('✅ Fichier CLAUDE.md généré pour guider Claude Code'),
+        );
       } catch (error) {
         spinner.fail("Échec de l'initialisation du projet");
         console.error(
@@ -565,12 +833,14 @@ CI=false`;
       console.log(
         boxen(
           chalk.green.bold('✨ Projet créé avec succès! ✨') +
-            '\n\n' +
-            `${chalk.cyan('Pour démarrer votre projet:')}\n\n` +
-            `  cd ${projectSlug}\n` +
-            `  tridyme dev\n\n` +
-            `${chalk.cyan("Pour plus d'informations:")}\n` +
-            `  tridyme --help`,
+          '\n\n' +
+          `${chalk.cyan('Pour démarrer votre projet:')}\n\n` +
+          `  cd ${projectSlug}\n` +
+          `  tridyme dev\n\n` +
+          `${chalk.cyan('Pour développer avec Claude Code (IA):')}\n\n` +
+          `  tridyme dev --ai\n\n` +
+          `${chalk.cyan("Pour plus d'informations:")}\n` +
+          `  tridyme --help`,
           { padding: 1, borderColor: 'green', margin: 1 },
         ),
       );
@@ -583,10 +853,76 @@ CI=false`;
 program
   .command('dev')
   .description('Lancer le projet en mode développement')
-  .action(async () => {
+  .option('--ai', 'Lancer Claude Code (IA) pour assister le développement')
+  .action(async (options) => {
     // Vérifier la politique d'exécution PowerShell sur Windows
     if (os.platform() === 'win32') {
       await checkPowerShellExecutionPolicy();
+    }
+
+    // Vérification de Claude Code si --ai est utilisé
+    let anthropicApiKey = null;
+    if (options.ai) {
+      const envPath = path.join(process.cwd(), '.env');
+      const envVars = readEnvFile(envPath);
+      anthropicApiKey = envVars.ANTHROPIC_API_KEY;
+
+      if (!anthropicApiKey) {
+        console.log(
+          boxen(
+            chalk.red.bold('Claude Code non configuré') +
+              '\n\n' +
+              chalk.white(
+                'La clé API Anthropic (ANTHROPIC_API_KEY) est absente du fichier .env.',
+              ) +
+              '\n\n' +
+              chalk.cyan('Pour configurer Claude Code:') +
+              '\n' +
+              chalk.white(
+                '  1. Obtenez une clé API sur https://console.anthropic.com',
+              ) +
+              '\n' +
+              chalk.white(
+                '  2. Ajoutez cette ligne dans le fichier .env de votre projet:',
+              ) +
+              '\n' +
+              chalk.green('     ANTHROPIC_API_KEY="sk-ant-votre-cle-ici"') +
+              '\n\n' +
+              chalk.white('  Puis relancez: ') +
+              chalk.cyan('tridyme dev --ai'),
+            { padding: 1, borderColor: 'red', margin: 1 },
+          ),
+        );
+        return;
+      }
+
+      // Vérifier que Claude Code est installé
+      try {
+        execSync('claude --version', { stdio: 'pipe' });
+      } catch (error) {
+        console.log(
+          boxen(
+            chalk.red.bold('Claude Code non installé') +
+              '\n\n' +
+              chalk.white(
+                'Claude Code (CLI) doit être installé pour utiliser --ai.',
+              ) +
+              '\n\n' +
+              chalk.cyan('Pour installer Claude Code:') +
+              '\n' +
+              chalk.white('  npm install -g @anthropic-ai/claude-code') +
+              '\n\n' +
+              chalk.white('  Puis relancez: ') +
+              chalk.cyan('tridyme dev --ai'),
+            { padding: 1, borderColor: 'red', margin: 1 },
+          ),
+        );
+        return;
+      }
+
+      console.log(
+        chalk.green('Claude Code (IA) sera lancé avec le serveur de développement.'),
+      );
     }
 
     console.log(chalk.blue('Démarrage du projet en mode développement...'));
@@ -603,53 +939,34 @@ program
         spinner.text = "Création de l'environnement virtuel Python...";
         spinner.start();
 
-        const createEnvCommand =
-          os.platform() === 'win32'
-            ? 'python -m venv env'
-            : 'python3 -m venv env';
+        const detectedPython = detectPythonCommand();
+        if (!detectedPython) {
+          spinner.fail('Python >= 3.10 est requis mais non trouvé');
+          console.log(chalk.red('Le SDK TriDyme nécessite Python 3.10 ou supérieur.'));
+          console.log(chalk.cyan('\nPour installer Python 3.12 :'));
+          if (os.platform() === 'darwin') {
+            console.log(chalk.white('  brew install python@3.12'));
+          } else if (os.platform() === 'win32') {
+            console.log(chalk.white('  Téléchargez depuis https://python.org/downloads/'));
+          } else {
+            console.log(chalk.white('  sudo apt install python3.12 python3.12-venv'));
+          }
+          return;
+        }
 
         try {
-          execSync(createEnvCommand, {
+          execSync(`${detectedPython.cmd} -m venv env`, {
             cwd: path.join(process.cwd(), 'backend'),
             stdio: 'pipe',
             shell: os.platform() === 'win32' ? true : '/bin/bash',
           });
-          spinner.succeed('Environnement virtuel Python créé');
+          spinner.succeed(`Environnement virtuel Python créé (${detectedPython.version})`);
         } catch (error) {
           spinner.fail(
             "Échec de la création de l'environnement virtuel Python",
           );
           console.error(chalk.red(`Erreur: ${error.message}`));
-          
-          // Diagnostics plus détaillés
-          console.log(chalk.yellow('\n🔍 Diagnostic:'));
-          
-          // Vérifier si Python est disponible
-          try {
-            const pythonVersion = execSync(os.platform() === 'win32' ? 'python --version' : 'python3 --version', {
-              stdio: 'pipe',
-              encoding: 'utf8',
-            });
-            console.log(chalk.green(`✅ Python trouvé: ${pythonVersion.trim()}`));
-          } catch (pythonError) {
-            console.log(chalk.red('❌ Python non trouvé dans le PATH'));
-            console.log(chalk.yellow('💡 Installez Python depuis https://python.org'));
-            return;
-          }
-          
-          // Vérifier les permissions
-          const backendPath = path.join(process.cwd(), 'backend');
-          if (!fs.existsSync(backendPath)) {
-            console.log(chalk.red('❌ Dossier backend non trouvé'));
-            console.log(chalk.yellow('💡 Assurez-vous d\'être dans un projet TriDyme valide'));
-            return;
-          }
-          
-          console.log(chalk.yellow('💡 Essayez de créer l\'environnement manuellement:'));
-          const manualCmd = os.platform() === 'win32' 
-            ? 'cd backend && python -m venv env'
-            : 'cd backend && python3 -m venv env';
-          console.log(chalk.white(`   ${manualCmd}`));
+          console.log(chalk.yellow(`💡 Essayez manuellement: cd backend && ${detectedPython.cmd} -m venv env`));
           return;
         }
       }
@@ -678,14 +995,14 @@ program
           // Approche Unix/macOS - utiliser directement l'exécutable Python de l'environnement virtuel
           const pythonPath = path.join(process.cwd(), 'backend', 'env', 'bin', 'python');
           const pipPath = path.join(process.cwd(), 'backend', 'env', 'bin', 'pip');
-          
+
           // Mise à jour de pip
           execSync(`${pythonPath} -m pip install --upgrade pip`, {
             cwd: path.join(process.cwd(), 'backend'),
             stdio: 'pipe',
             shell: '/bin/bash',
           });
-          
+
           // Installation des dépendances
           execSync(`${pipPath} install -r requirements.txt`, {
             cwd: path.join(process.cwd(), 'backend'),
@@ -735,9 +1052,35 @@ program
         shell: true,
       });
 
+      // Lancer Claude Code si --ai
+      let claudeProcess = null;
+      if (options.ai && anthropicApiKey) {
+        console.log(
+          chalk.blue('\nLancement de Claude Code...'),
+        );
+        claudeProcess = spawn('claude', [], {
+          cwd: process.cwd(),
+          stdio: 'inherit',
+          shell: true,
+          env: {
+            ...process.env,
+            ANTHROPIC_API_KEY: anthropicApiKey,
+          },
+        });
+
+        claudeProcess.on('close', (code) => {
+          console.log(
+            chalk.yellow(
+              `Claude Code s'est arrêté (code: ${code}). Le serveur de développement continue.`,
+            ),
+          );
+        });
+      }
+
       process.on('SIGINT', () => {
         backendProcess.kill('SIGINT');
         frontendProcess.kill('SIGINT');
+        if (claudeProcess) claudeProcess.kill('SIGINT');
         process.exit();
       });
 
@@ -750,6 +1093,7 @@ program
           );
         }
         backendProcess.kill('SIGINT');
+        if (claudeProcess) claudeProcess.kill('SIGINT');
         process.exit(code);
       });
     }, 2000);
@@ -777,7 +1121,7 @@ program
     console.log(chalk.blue('Construction du projet pour la production...'));
 
     try {
-      execSync('npm run build', { 
+      execSync('npm run build', {
         cwd: path.join(process.cwd(), 'frontend'),
         stdio: 'inherit',
         shell: os.platform() === 'win32' ? true : '/bin/bash',
@@ -859,7 +1203,7 @@ program
       try {
         authUrl = await handleGitLabAuth();
         accessGranted = await testGitLabAccess(authUrl, tempDir);
-        
+
         if (!accessGranted) {
           retryCount++;
           if (retryCount < maxRetries) {
@@ -871,7 +1215,7 @@ program
                 default: true,
               },
             ]);
-            
+
             if (!retry) break;
           }
         }
@@ -995,9 +1339,9 @@ program
     console.log(
       boxen(
         chalk.green.bold('✨ SDK mis à jour avec succès! ✨') +
-          '\n\n' +
-          'Vos fichiers personnalisés ont été préservés.\n' +
-          'Vous devrez peut-être reconstruire le projet pour que les changements prennent effet.',
+        '\n\n' +
+        'Vos fichiers personnalisés ont été préservés.\n' +
+        'Vous devrez peut-être reconstruire le projet pour que les changements prennent effet.',
         { padding: 1, borderColor: 'green', margin: 1 },
       ),
     );

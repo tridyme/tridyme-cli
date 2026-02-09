@@ -1,6 +1,6 @@
 {
   "name": "tridyme-cli",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "CLI pour créer et gérer des applications TriDyme avec déploiement CI/CD automatique (accès GitLab privé requis)",
   "main": "index.js",
   "bin": {
