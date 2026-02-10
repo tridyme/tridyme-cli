@@ -66,16 +66,8 @@ async function packageProject(projectPath) {
  */
 async function pollDeploymentStatus(client, deploymentId) {
   const spinner = ora('En attente du deploiement...').start();
-  const statusMessages = {
-    pending: 'En file d\'attente...',
-    uploading: 'Upload du code source...',
-    building: 'Construction de l\'image Docker (cela peut prendre quelques minutes)...',
-    pushing: 'Push de l\'image vers le registry...',
-    deploying: 'Deploiement sur Kubernetes...',
-    configuring_dns: 'Configuration DNS et SSL...',
-    live: 'Deploiement reussi !',
-    failed: 'Deploiement echoue.',
-  };
+  const startTime = Date.now();
+  let logsUrlShown = false;
 
   while (true) {
     try {
@@ -85,7 +77,29 @@ async function pollDeploymentStatus(client, deploymentId) {
       const deployment = response.data;
       const status = deployment.status;
 
-      spinner.text = statusMessages[status] || `Statut: ${status}`;
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      const elapsedStr = elapsed >= 60
+        ? `${Math.floor(elapsed / 60)}m${(elapsed % 60).toString().padStart(2, '0')}s`
+        : `${elapsed}s`;
+
+      if (status === 'building') {
+        spinner.text = `Construction de l'image Docker [${elapsedStr}]...`;
+        if (deployment.logs_url && !logsUrlShown) {
+          spinner.info(chalk.cyan(`Logs Cloud Build: ${deployment.logs_url}`));
+          spinner.start(`Construction de l'image Docker [${elapsedStr}]...`);
+          logsUrlShown = true;
+        }
+      } else if (status === 'pending') {
+        spinner.text = 'En file d\'attente...';
+      } else if (status === 'uploading') {
+        spinner.text = `Upload du code source [${elapsedStr}]...`;
+      } else if (status === 'deploying') {
+        spinner.text = `Deploiement sur Kubernetes [${elapsedStr}]...`;
+      } else if (status === 'configuring_dns') {
+        spinner.text = `Configuration DNS et SSL [${elapsedStr}]...`;
+      } else {
+        spinner.text = `Statut: ${status} [${elapsedStr}]`;
+      }
 
       if (status === 'live') {
         spinner.succeed(chalk.green('Deploiement reussi !'));
@@ -95,7 +109,27 @@ async function pollDeploymentStatus(client, deploymentId) {
       if (status === 'failed') {
         spinner.fail(chalk.red('Deploiement echoue'));
         if (deployment.error_message) {
-          console.log(chalk.red(`Erreur: ${deployment.error_message}`));
+          console.log(chalk.red(`\nErreur: ${deployment.error_message}`));
+        }
+        if (deployment.logs_url) {
+          console.log(chalk.yellow(`\nLogs Cloud Build: ${deployment.logs_url}`));
+        }
+        // Fetch deployment logs for more details
+        try {
+          const logsResponse = await client.get(
+            `/api/deploy/logs/${deploymentId}`
+          );
+          const logs = logsResponse.data;
+          if (logs && logs.length > 0) {
+            console.log(chalk.gray('\n--- Logs du deploiement ---'));
+            logs.forEach((log) => {
+              const color = log.level === 'error' ? chalk.red : log.level === 'warning' ? chalk.yellow : chalk.gray;
+              console.log(color(`[${log.step}] ${log.message}`));
+            });
+            console.log(chalk.gray('---'));
+          }
+        } catch (_) {
+          // Ignore log fetch errors
         }
         return deployment;
       }
