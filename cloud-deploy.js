@@ -70,6 +70,7 @@ async function pollDeploymentStatus(client, deploymentId) {
   let logsUrlShown = false;
   let lastLogCount = 0;
 
+  // eslint-disable-next-line no-constant-condition
   while (true) {
     try {
       const response = await client.get(

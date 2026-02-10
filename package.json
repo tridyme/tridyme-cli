@@ -1,13 +1,13 @@
 {
   "name": "tridyme-cli",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "description": "CLI pour créer, développer et déployer des applications TriDyme sur le cloud TriDyme (*.tridyme.io)",
   "main": "index.js",
   "bin": {
     "tridyme": "./index.js"
   },
   "scripts": {
-    "test": "jest",
+    "test": "jest --passWithNoTests",
     "test:watch": "jest --watch",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

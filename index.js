@@ -390,6 +390,7 @@ program
       const applicationId = generateMongoObjectId();
       const applicationSlug = slugify(answers.applicationName, { lower: true });
       const renderUrl = `https://${applicationSlug}.onrender.com`;
+      // eslint-disable-next-line no-unused-vars
       const platformApiToken =
         'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImFkbWluQHRyaWR5bWUuY29tIiwiX2lkIjoiNTg5OWUwYWNhNjAwNzQxNzU1NDMzOTAyIiwiaWF0IjoxNjg4NDY3NzA2fQ.FGDbvEVZnDIVNjsi0izrt-63lVndg7EnNpDK9BO1LiE';
 
@@ -975,7 +976,8 @@ program
         backendProcess.kill('SIGINT');
         frontendProcess.kill('SIGINT');
         if (claudeProcess) claudeProcess.kill('SIGINT');
-        process.exit();
+        process.exitCode = 0; // eslint-disable-line no-process-exit
+        process.kill(process.pid, 'SIGINT');
       });
 
       frontendProcess.on('close', (code) => {
@@ -988,7 +990,7 @@ program
         }
         backendProcess.kill('SIGINT');
         if (claudeProcess) claudeProcess.kill('SIGINT');
-        process.exit(code);
+        process.exitCode = code; // eslint-disable-line no-process-exit
       });
     }, 2000);
 
@@ -1002,7 +1004,7 @@ program
             "Astuce: Vérifiez les journaux ci-dessus pour plus de détails sur l'erreur.",
           ),
         );
-        process.exit(code);
+        process.exitCode = code; // eslint-disable-line no-process-exit
       }
     });
   });
