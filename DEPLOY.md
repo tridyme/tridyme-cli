@@ -57,8 +57,7 @@ Le CLI guide l'utilisateur a travers :
 1. Nom de l'application
 2. Nom de l'entreprise
 3. URL de l'API plateforme
-4. Authentification GitLab (pour cloner le SDK)
-5. Configuration optionnelle de Claude Code (IA)
+4. Configuration optionnelle de Claude Code (IA)
 
 ### Structure du projet genere
 
@@ -81,7 +80,7 @@ mon-application/
 ├── k8s/                     # Manifestes Kubernetes
 ├── Dockerfile               # Build multi-stage
 ├── .env                     # Variables d'environnement
-├── .gitlab-ci.yml           # Pipeline CI/CD GitLab
+├── .gitlab-ci.yml           # Pipeline CI/CD
 └── README.md
 ```
 
@@ -182,7 +181,7 @@ tridyme deploy --env development   # Branche develop
 4. Merge les changements si necessaire
 5. Build le frontend (en production)
 6. Push vers le remote Git
-7. Le pipeline CI/CD GitLab prend le relais
+7. Le pipeline CI/CD prend le relais
 
 ## 6. URL de l'application deployee
 
@@ -206,7 +205,6 @@ REACT_APP_APPLICATION_NAME="Mon Application"
 REACT_APP_APPLICATION_ID="65a1b2c3d4e5f6789abcdef0"
 REACT_APP_APPLICATION_API_URL="http://localhost:8000"
 REACT_APP_PLATFORM_API_URL="https://platform.tridyme.com/api"
-REACT_APP_PLATFORM_API_TOKEN="votre-token"
 ```
 
 > **Important** : Le fichier `.env` n'est PAS inclus dans l'archive de deploiement. Les variables de production sont injectees automatiquement lors du build Docker.

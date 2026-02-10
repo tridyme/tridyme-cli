@@ -21,8 +21,8 @@ const deployModule = require('./deploy');
 const authModule = require('./auth');
 const cloudDeployModule = require('./cloud-deploy');
 
-// URL du SDK (dépôt GitLab privé)
-const SDK_REPO_URL = 'https://gitlab.com/tridyme/sdk-webapp-python.git';
+// URL du SDK (dépôt GitHub public)
+const SDK_REPO_URL = 'https://github.com/tridyme/sdk-webapp-python.git';
 
 // Détecte la meilleure version de Python disponible (>= 3.10 requis par le SDK)
 function detectPythonCommand() {
@@ -126,7 +126,7 @@ ${projectConfig.projectSlug || 'projet'}/
 │   └── module-federation/      # Configuration Webpack Module Federation
 ├── k8s/                        # Manifestes Kubernetes (production + develop)
 ├── Dockerfile                  # Build multi-stage (Node + Python)
-├── .gitlab-ci.yml             # Pipeline CI/CD GitLab
+├── .gitlab-ci.yml             # Pipeline CI/CD
 └── .env                       # Variables d'environnement
 \`\`\`
 
@@ -220,104 +220,27 @@ tridyme deploy --env production
   fs.writeFileSync(path.join(projectPath, 'CLAUDE.md'), claudeMdContent);
 }
 
-// Fonction pour gérer l'authentification GitLab
-async function handleGitLabAuth() {
-  console.log(chalk.blue('\n🔐 Authentification GitLab requise\n'));
-  console.log(chalk.yellow('Le SDK TriDyme est hébergé sur un GitLab privé.'));
-  console.log(chalk.yellow('Vous devez avoir accès au dépôt pour continuer.\n'));
-
-  const authMethods = await inquirer.prompt([
-    {
-      type: 'list',
-      name: 'method',
-      message: 'Comment souhaitez-vous vous authentifier?',
-      choices: [
-        {
-          name: '🔑 Token d\'accès personnel GitLab',
-          value: 'token',
-        },
-        {
-          name: '👤 Nom d\'utilisateur et mot de passe',
-          value: 'credentials',
-        },
-        {
-          name: '🔧 J\'ai déjà configuré Git avec mes credentials',
-          value: 'existing',
-        },
-      ],
-    },
-  ]);
-
-  let authUrl = SDK_REPO_URL;
-
-  if (authMethods.method === 'token') {
-    const { token } = await inquirer.prompt([
-      {
-        type: 'password',
-        name: 'token',
-        message: 'Entrez votre token d\'accès GitLab:',
-        validate: (input) => input.trim() ? true : 'Le token est requis',
-      },
-    ]);
-
-    // Format: https://oauth2:TOKEN@gitlab.com/path
-    authUrl = SDK_REPO_URL.replace('https://', `https://oauth2:${token}@`);
-
-  } else if (authMethods.method === 'credentials') {
-    const credentials = await inquirer.prompt([
-      {
-        type: 'input',
-        name: 'username',
-        message: 'Nom d\'utilisateur GitLab:',
-        validate: (input) => input.trim() ? true : 'Le nom d\'utilisateur est requis',
-      },
-      {
-        type: 'password',
-        name: 'password',
-        message: 'Mot de passe GitLab:',
-        validate: (input) => input.trim() ? true : 'Le mot de passe est requis',
-      },
-    ]);
-
-    // Format: https://username:password@gitlab.com/path
-    authUrl = SDK_REPO_URL.replace('https://', `https://${credentials.username}:${credentials.password}@`);
-
-  } else if (authMethods.method === 'existing') {
-    console.log(chalk.green('✅ Utilisation de la configuration Git existante'));
-    authUrl = SDK_REPO_URL;
-  }
-
-  return authUrl;
-}
-
-// Fonction pour tester l'accès au dépôt GitLab
-async function testGitLabAccess(authUrl, projectPath) {
-  const spinner = ora('Test d\'accès au dépôt GitLab...').start();
+// Fonction pour tester l'accès au dépôt SDK
+async function testSDKAccess(repoUrl, projectPath) {
+  const spinner = ora('Vérification de l\'accès au SDK TriDyme...').start();
 
   try {
-    // Tester l'accès avec ls-remote (plus léger qu'un clone)
-    execSync(`git ls-remote ${authUrl}`, {
+    execSync(`git ls-remote ${repoUrl}`, {
       cwd: projectPath,
       stdio: 'pipe',
-      timeout: 10000, // 10 secondes timeout
+      timeout: 15000,
     });
 
-    spinner.succeed('Accès au dépôt GitLab confirmé');
+    spinner.succeed('Accès au SDK TriDyme confirmé');
     return true;
   } catch (error) {
-    spinner.fail('Échec de l\'accès au dépôt GitLab');
+    spinner.fail('Impossible d\'accéder au SDK TriDyme');
 
-    console.error(chalk.red('❌ Impossible d\'accéder au dépôt GitLab'));
+    console.error(chalk.red('❌ Impossible d\'accéder au dépôt du SDK'));
     console.log(chalk.yellow('\\nCauses possibles:'));
-    console.log(chalk.white('• Credentials incorrects'));
-    console.log(chalk.white('• Pas d\'accès au dépôt privé'));
     console.log(chalk.white('• Problème de connexion réseau'));
-    console.log(chalk.white('• Token expiré ou révoqué'));
-
-    console.log(chalk.blue('\\n💡 Pour obtenir un token d\'accès:'));
-    console.log(chalk.white('1. Connectez-vous à GitLab'));
-    console.log(chalk.white('2. Allez dans Préférences > Tokens d\'accès'));
-    console.log(chalk.white('3. Créez un token avec les permissions \"read_repository\"'));
+    console.log(chalk.white('• Git n\'est pas installé'));
+    console.log(chalk.blue('\\n💡 Le SDK est public sur GitHub: ' + SDK_REPO_URL));
 
     return false;
   }
@@ -504,49 +427,19 @@ program
       // Créer le dossier du projet
       fs.mkdirSync(projectPath, { recursive: true });
 
-      // Gérer l'authentification GitLab
-      let authUrl;
-      let accessGranted = false;
-      let retryCount = 0;
-      const maxRetries = 3;
-
-      while (!accessGranted && retryCount < maxRetries) {
-        try {
-          authUrl = await handleGitLabAuth();
-          accessGranted = await testGitLabAccess(authUrl, projectPath);
-
-          if (!accessGranted) {
-            retryCount++;
-            if (retryCount < maxRetries) {
-              const { retry } = await inquirer.prompt([
-                {
-                  type: 'confirm',
-                  name: 'retry',
-                  message: 'Voulez-vous réessayer avec d\'autres credentials?',
-                  default: true,
-                },
-              ]);
-
-              if (!retry) break;
-            }
-          }
-        } catch (error) {
-          console.error(chalk.red(`Erreur d'authentification: ${error.message}`));
-          break;
-        }
-      }
+      // Vérifier l'accès au SDK
+      const accessGranted = await testSDKAccess(SDK_REPO_URL, projectPath);
 
       if (!accessGranted) {
         console.error(chalk.red('❌ Impossible d\'accéder au SDK TriDyme'));
-        console.log(chalk.yellow('Contactez votre administrateur pour obtenir l\'accès au dépôt GitLab.'));
         return;
       }
 
-      // Clone le référentiel avec authentification
+      // Cloner le SDK depuis GitHub
       const spinner = ora('Clonage du SDK TriDyme...').start();
       try {
         execSync(
-          `git clone ${authUrl} .`,
+          `git clone ${SDK_REPO_URL} .`,
           { cwd: projectPath, stdio: 'pipe' },
         );
         spinner.succeed('SDK TriDyme cloné avec succès');
@@ -577,34 +470,31 @@ program
 
       // Créer le contenu des fichiers .env
       const envDevContent = `ENVIRONMENT="development"
-REACT_APP_LOGO="./logo.svg"
+REACT_APP_LOGO="./logo.png"
 REACT_APP_COMPANY="${answers.companyName}"
 REACT_APP_APPLICATION_NAME="${answers.applicationName}"
 REACT_APP_APPLICATION_API_URL="http://localhost:8000"
 REACT_APP_PLATFORM_API_URL="${answers.platformApiUrl}"
-REACT_APP_PLATFORM_API_TOKEN="${platformApiToken}"
 REACT_APP_APPLICATION_ID="${applicationId}"
 NODE_PATH=./..
 CI=false`;
 
       const envProdContent = `ENVIRONMENT="production"
-REACT_APP_LOGO="./logo.svg"
+REACT_APP_LOGO="./logo.png"
 REACT_APP_COMPANY="${answers.companyName}"
 REACT_APP_APPLICATION_NAME="${answers.applicationName}"
 REACT_APP_APPLICATION_API_URL="${renderUrl}"
 REACT_APP_PLATFORM_API_URL="${answers.platformApiUrl}"
-REACT_APP_PLATFORM_API_TOKEN="${platformApiToken}"
 REACT_APP_APPLICATION_ID="${applicationId}"
 NODE_PATH=./..
 CI=false`;
 
       const envContent = `ENVIRONMENT="development"
-REACT_APP_LOGO="./logo.svg"
+REACT_APP_LOGO="./logo.png"
 REACT_APP_COMPANY="${answers.companyName}"
 REACT_APP_APPLICATION_NAME="${answers.applicationName}"
 REACT_APP_APPLICATION_API_URL="${renderUrl}"
 REACT_APP_PLATFORM_API_URL="${answers.platformApiUrl}"
-REACT_APP_PLATFORM_API_TOKEN="${platformApiToken}"
 REACT_APP_APPLICATION_ID="${applicationId}"
 NODE_PATH=./..
 CI=false`;
@@ -1304,41 +1194,11 @@ program
     const tempDir = path.join(os.tmpdir(), 'tridyme-sdk-update-' + Date.now());
     fs.mkdirSync(tempDir, { recursive: true });
 
-    // Gérer l'authentification GitLab pour la mise à jour
-    let authUrl;
-    let accessGranted = false;
-    let retryCount = 0;
-    const maxRetries = 3;
-
-    while (!accessGranted && retryCount < maxRetries) {
-      try {
-        authUrl = await handleGitLabAuth();
-        accessGranted = await testGitLabAccess(authUrl, tempDir);
-
-        if (!accessGranted) {
-          retryCount++;
-          if (retryCount < maxRetries) {
-            const { retry } = await inquirer.prompt([
-              {
-                type: 'confirm',
-                name: 'retry',
-                message: 'Voulez-vous réessayer avec d\'autres credentials?',
-                default: true,
-              },
-            ]);
-
-            if (!retry) break;
-          }
-        }
-      } catch (error) {
-        console.error(chalk.red(`Erreur d'authentification: ${error.message}`));
-        break;
-      }
-    }
+    // Vérifier l'accès au SDK
+    const accessGranted = await testSDKAccess(SDK_REPO_URL, tempDir);
 
     if (!accessGranted) {
       console.error(chalk.red('❌ Impossible d\'accéder au SDK TriDyme'));
-      console.log(chalk.yellow('Contactez votre administrateur pour obtenir l\'accès au dépôt GitLab.'));
       fs.removeSync(tempDir);
       return;
     }
@@ -1346,7 +1206,7 @@ program
     const spinner = ora('Téléchargement du SDK le plus récent...').start();
 
     try {
-      execSync(`git clone ${authUrl} .`, {
+      execSync(`git clone ${SDK_REPO_URL} .`, {
         cwd: tempDir,
         stdio: 'pipe',
       });
