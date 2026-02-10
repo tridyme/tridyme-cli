@@ -14,8 +14,12 @@ const os = require('os');
 // Version depuis package.json
 const packageJson = require('./package.json');
 
-// Module de déploiement simplifié
+// Module de déploiement simplifié (ancien mode Git CI/CD)
 const deployModule = require('./deploy');
+
+// Modules pour le déploiement cloud et l'authentification
+const authModule = require('./auth');
+const cloudDeployModule = require('./cloud-deploy');
 
 // URL du SDK (dépôt GitLab privé)
 const SDK_REPO_URL = 'https://gitlab.com/tridyme/sdk-webapp-python.git';
@@ -1137,17 +1141,124 @@ program
 // Commande pour déployer l'application
 program
   .command('deploy')
-  .description("Déployer l'application via CI/CD")
+  .description("Déployer l'application sur TriDyme Cloud")
   .option(
     '--env <environment>',
     'Environnement (development|production)',
-    'development',
+    'production',
   )
+  .option('--git', 'Utiliser le déploiement Git CI/CD (ancien mode)')
+  .option('--app-id <id>', "ID de l'application à déployer")
   .action(async (options) => {
-    await deployModule.initiateCICDDeploy({
-      projectPath: process.cwd(),
-      environment: options.env,
-    });
+    if (options.git) {
+      // Legacy git-push based deploy
+      await deployModule.initiateCICDDeploy({
+        projectPath: process.cwd(),
+        environment: options.env,
+      });
+    } else {
+      // New cloud deploy via TriDyme Deploy API
+      await cloudDeployModule.initiateCloudDeploy({
+        projectPath: process.cwd(),
+        appId: options.appId,
+      });
+    }
+  });
+
+// Commande pour se connecter à la plateforme TriDyme
+program
+  .command('login')
+  .description('Se connecter à la plateforme TriDyme')
+  .action(async () => {
+    try {
+      // Check if already logged in
+      const existing = await authModule.validateToken();
+      if (existing) {
+        console.log(
+          chalk.green(`Connecté en tant que ${existing.full_name} (${existing.email})`)
+        );
+        const { relogin } = await inquirer.prompt([
+          {
+            type: 'confirm',
+            name: 'relogin',
+            message: 'Se connecter avec un autre compte ?',
+            default: false,
+          },
+        ]);
+        if (!relogin) return;
+      }
+
+      const credentials = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'email',
+          message: 'Email:',
+          validate: (input) =>
+            input.includes('@') ? true : 'Entrez un email valide',
+        },
+        {
+          type: 'password',
+          name: 'password',
+          message: 'Mot de passe:',
+          validate: (input) =>
+            input.length > 0 ? true : 'Mot de passe requis',
+        },
+      ]);
+
+      const spinner = ora('Connexion...').start();
+      try {
+        const result = await authModule.login(
+          credentials.email,
+          credentials.password
+        );
+        authModule.saveCredentials(result);
+        spinner.succeed(
+          chalk.green(
+            `Connecté en tant que ${result.full_name} (${result.email})`
+          )
+        );
+      } catch (error) {
+        spinner.fail('Échec de la connexion');
+        const detail = error.response?.data?.detail || error.message;
+        console.error(chalk.red(detail));
+      }
+    } catch (error) {
+      console.error(chalk.red(`Erreur: ${error.message}`));
+    }
+  });
+
+// Commande pour se déconnecter
+program
+  .command('logout')
+  .description('Se déconnecter de la plateforme TriDyme')
+  .action(async () => {
+    const spinner = ora('Déconnexion...').start();
+    await authModule.logout();
+    spinner.succeed('Déconnecté');
+  });
+
+// Commande pour afficher l'utilisateur connecté
+program
+  .command('whoami')
+  .description("Afficher l'utilisateur connecté")
+  .action(async () => {
+    const creds = authModule.loadCredentials();
+    if (!creds) {
+      console.log(
+        chalk.yellow('Non connecté. Lancez: tridyme login')
+      );
+      return;
+    }
+    const valid = await authModule.validateToken();
+    if (valid) {
+      console.log(
+        chalk.green(`${valid.full_name} (${valid.email})`)
+      );
+    } else {
+      console.log(
+        chalk.yellow('Session expirée. Lancez: tridyme login')
+      );
+    }
   });
 
 

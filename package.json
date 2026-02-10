@@ -1,7 +1,7 @@
 {
   "name": "tridyme-cli",
   "version": "0.0.6",
-  "description": "CLI pour créer et gérer des applications TriDyme avec déploiement CI/CD automatique (accès GitLab privé requis)",
+  "description": "CLI pour créer, développer et déployer des applications TriDyme sur le cloud TriDyme (*.tridyme.io)",
   "main": "index.js",
   "bin": {
     "tridyme": "./index.js"
@@ -40,9 +40,12 @@
   },
   "homepage": "https://github.com/tridyme/tridyme-cli#readme",
   "dependencies": {
+    "archiver": "^6.0.0",
+    "axios": "^1.6.0",
     "boxen": "^5.1.2",
     "chalk": "^4.1.2",
     "commander": "^11.1.0",
+    "form-data": "^4.0.0",
     "fs-extra": "^11.2.0",
     "inquirer": "^8.2.6",
     "ora": "^5.4.1",
@@ -67,6 +70,8 @@
   "files": [
     "index.js",
     "deploy.js",
+    "auth.js",
+    "cloud-deploy.js",
     "package.json",
     "README.md",
     "LICENSE"
