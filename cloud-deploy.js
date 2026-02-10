@@ -68,6 +68,7 @@ async function pollDeploymentStatus(client, deploymentId) {
   const spinner = ora('En attente du deploiement...').start();
   const startTime = Date.now();
   let logsUrlShown = false;
+  let lastLogCount = 0;
 
   while (true) {
     try {
@@ -81,6 +82,28 @@ async function pollDeploymentStatus(client, deploymentId) {
       const elapsedStr = elapsed >= 60
         ? `${Math.floor(elapsed / 60)}m${(elapsed % 60).toString().padStart(2, '0')}s`
         : `${elapsed}s`;
+
+      // Fetch new logs and display them
+      try {
+        const logsResponse = await client.get(
+          `/api/deploy/logs/${deploymentId}`
+        );
+        const logs = logsResponse.data;
+        if (logs && logs.length > lastLogCount) {
+          const newLogs = logs.slice(lastLogCount);
+          for (const log of newLogs) {
+            if (log.level === 'error') {
+              // Errors will be shown at the end
+              continue;
+            }
+            spinner.info(chalk.gray(`[${log.step}] ${log.message}`));
+            spinner.start();
+          }
+          lastLogCount = logs.length;
+        }
+      } catch (_) {
+        // Ignore log fetch errors
+      }
 
       if (status === 'building') {
         spinner.text = `Construction de l'image Docker [${elapsedStr}]...`;
