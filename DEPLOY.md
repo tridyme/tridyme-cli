@@ -12,7 +12,7 @@
 ## 1. Installation du CLI
 
 ```bash
-npm install -g tridyme-cli
+npm install -g @tridyme/cli
 ```
 
 Verifier l'installation :
@@ -297,7 +297,7 @@ tridyme deploy --env production    # Relancer
 
 ```bash
 # Installation
-npm install -g tridyme-cli
+npm install -g @tridyme/cli
 
 # Authentification
 tridyme login

@@ -5,7 +5,7 @@ Un outil en ligne de commande pour simplifier le developpement et le deploiement
 ## Installation
 
 ```bash
-npm install -g tridyme-cli
+npm install -g @tridyme/cli
 tridyme --version
 ```
 

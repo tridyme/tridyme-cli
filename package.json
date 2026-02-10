@@ -1,5 +1,5 @@
 {
-  "name": "tridyme-cli",
+  "name": "@tridyme/cli",
   "version": "0.0.7",
   "description": "CLI pour créer, développer et déployer des applications TriDyme sur le cloud TriDyme (*.tridyme.io)",
   "main": "index.js",
